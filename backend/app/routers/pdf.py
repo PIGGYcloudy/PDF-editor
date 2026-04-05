@@ -2,11 +2,12 @@
 PDF 處理路由
 """
 import io
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 
 from app.config import UPLOADS_DIR, OUTPUTS_DIR, MAX_FILE_SIZE, PAPER_SIZES, CORS_ORIGINS
 from app.models.schemas import (
@@ -456,8 +457,14 @@ async def delete_pdf(pdf_id: str):
 
     try:
         # 刪除檔案
-        pdf_files[pdf_id].unlink()
+        file_path = pdf_files[pdf_id]
+        file_path.unlink()
         del pdf_files[pdf_id]
+
+        # 也刪除同名的輸出檔案（如果有）
+        output_file = OUTPUTS_DIR / f"{pdf_id}.pdf"
+        if output_file.exists():
+            output_file.unlink()
 
         return {"message": "檔案刪除成功"}
     except Exception as e:

@@ -1,9 +1,9 @@
 import { useState, useCallback } from 'react';
-import { Box, Container, Typography, Paper, Button, CircularProgress, Alert, Grid, IconButton, Modal, Stack, Checkbox } from '@mui/material';
-import { UploadFile as UploadFileIcon, Delete as DeleteIcon, OpenInFull as ResizeIcon, Compress as CompressIcon, WaterDamage as WatermarkIcon, Photo as PhotoIcon, Fullscreen as PreviewIcon, ContentPaste as MergeIcon, Download as DownloadIcon, Close as CloseIcon, DragIndicator } from '@mui/icons-material';
+import { Box, Container, Typography, Paper, Button, CircularProgress, Alert, Grid, IconButton, Stack } from '@mui/material';
+import { UploadFile as UploadFileIcon, Delete as DeleteIcon, OpenInFull as ResizeIcon, Compress as CompressIcon, WaterDamage as WatermarkIcon, Photo as PhotoIcon, ContentPaste as MergeIcon, Download as DownloadIcon, DragIndicator } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import { PDFFile, Page, PaperSizePreset } from './types';
-import { uploadPDF, getPages, deletePages, resizePages, compressPDF, addTextWatermark, convertToImage, mergePDFs, getPagePreview, downloadPDF, reorderPages } from './services/api';
+import { uploadPDF, getPages, deletePages, resizePages, compressPDF, addTextWatermark, convertToImage, mergePDFs, downloadPDF, reorderPages, deletePDF as deletePDFApi } from './services/api';
 import './App.css';
 
 // 紙張尺寸預設值
@@ -29,7 +29,6 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string | null>(null);
-  const [previewPage, setPreviewPage] = useState<{ pageNumber: number; imageUrl: string } | null>(null);
   const [draggedPage, setDraggedPage] = useState<number | null>(null);
   const [pagesOrder, setPagesOrder] = useState<number[]>([]);
 
@@ -283,25 +282,33 @@ function App() {
     }
   };
 
-  // 打開預覽
-  const handleOpenPreview = async (pageNumber: number) => {
-    if (!currentPdfId) return;
+  // 刪除 PDF 檔案
+  const handleDeletePDF = async (pdfId: string, e: any) => {
+    e.stopPropagation();
+    
+    if (!window.confirm('確定要刪除此 PDF 檔案嗎？')) {
+      return;
+    }
 
+    setLoading(true);
+    setError(null);
     try {
-      const blob = await getPagePreview(currentPdfId, pageNumber);
-      const imageUrl = URL.createObjectURL(blob);
-      setPreviewPage({ pageNumber, imageUrl });
+      await deletePDFApi(pdfId);
+      setPdfFiles((prev: PDFFile[]) => prev.filter(f => f.id !== pdfId));
+      
+      // 如果刪除的是當前選取的 PDF，重置狀態
+      if (currentPdfId === pdfId) {
+        setCurrentPdfId(null);
+        setPages([]);
+        setSelectedPages(new Set());
+      }
+      
+      setSuccess('PDF 檔案刪除成功！');
     } catch (err) {
-      setError('載入預覽失敗。');
+      setError('刪除 PDF 失敗。');
+    } finally {
+      setLoading(false);
     }
-  };
-
-  // 關閉預覽
-  const handleClosePreview = () => {
-    if (previewPage) {
-      URL.revokeObjectURL(previewPage.imageUrl);
-    }
-    setPreviewPage(null);
   };
 
   // 拖曳開始
@@ -400,7 +407,7 @@ function App() {
           <Paper sx={{ p: 3, mb: 3 }}>
             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
               <Typography variant="h6">PDF 檔案</Typography>
-              {selectedForMerge.size > 0 && (
+              {selectedForMerge.size >= 2 && (
                 <Button
                   variant="contained"
                   color="primary"
@@ -421,20 +428,14 @@ function App() {
                       borderRadius: 2,
                       cursor: 'pointer',
                       transition: 'all 0.2s',
+                      bgcolor: selectedForMerge.has(file.id) ? '#e3f2fd' : '#fff',
                       '&:hover': {
                         boxShadow: 3,
                       },
                     }}
                     onClick={() => handleToggleMergeSelect(file.id)}
                   >
-                    <Stack direction="row" spacing={2} alignItems="center">
-                      <Checkbox
-                        checked={selectedForMerge.has(file.id)}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          handleToggleMergeSelect(file.id);
-                        }}
-                      />
+                    <Stack direction="row" spacing={1} alignItems="center">
                       <Button
                         variant={currentPdfId === file.id ? 'contained' : 'outlined'}
                         onClick={(e) => {
@@ -442,14 +443,26 @@ function App() {
                           handleSelectPdf(file.id);
                         }}
                         startIcon={<UploadFileIcon />}
-                        sx={{ flexGrow: 1 }}
+                        sx={{ flexGrow: 1, minWidth: 0 }}
                       >
-                        {file.name}
+                        <Box sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {file.name}
+                        </Box>
                       </Button>
-                      <Typography variant="body2" color="text.secondary">
-                        {file.pageCount} 頁
-                      </Typography>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeletePDF(file.id, e);
+                        }}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
                     </Stack>
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                      {file.pageCount} 頁
+                    </Typography>
                   </Paper>
                 </Grid>
               ))}
@@ -769,23 +782,12 @@ function App() {
                       <Typography variant="caption" color="text.secondary">
                         {page.width} x {page.height} pt
                       </Typography>
-                      <Box sx={{ mt: 1 }}>
-                        <IconButton
-                          size="small"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenPreview(pageNumber);
-                          }}
-                        >
-                          <PreviewIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
                     </Box>
                   </Grid>
                 );
               })}
             </Grid>
-            {pagesOrder.length > 0 && pagesOrder.join(',') !== pages.map(p => p.pageNumber).join(',') && (
+            {pagesOrder.length > 0 && pagesOrder.join(',') !== pages.map((p: Page) => p.pageNumber).join(',') && (
               <Box sx={{ mt: 2, textAlign: 'center' }}>
                 <Button
                   variant="contained"
@@ -798,48 +800,6 @@ function App() {
             )}
           </Paper>
         )}
-
-        {/* 預覽 Modal */}
-        <Modal
-          open={!!previewPage}
-          onClose={handleClosePreview}
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Box
-            sx={{
-              position: 'relative',
-              bgcolor: 'white',
-              borderRadius: 2,
-              p: 2,
-              maxWidth: '90vw',
-              maxHeight: '90vh',
-              overflow: 'auto',
-            }}
-          >
-            <IconButton
-              onClick={handleClosePreview}
-              sx={{ position: 'absolute', top: 8, right: 8, zIndex: 1 }}
-            >
-              <CloseIcon />
-            </IconButton>
-            {previewPage && (
-              <>
-                <Typography variant="h6" sx={{ mb: 2, textAlign: 'center' }}>
-                  頁面 {previewPage.pageNumber} 預覽
-                </Typography>
-                <img
-                  src={previewPage.imageUrl}
-                  alt={`Page ${previewPage.pageNumber}`}
-                  style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
-                />
-              </>
-            )}
-          </Box>
-        </Modal>
       </Container>
     </Box>
   );
