@@ -1,9 +1,9 @@
 import { useState, useCallback } from 'react';
 import { Box, Container, Typography, Paper, Button, CircularProgress, Alert, Grid } from '@mui/material';
-import { UploadFile as UploadFileIcon, Delete as DeleteIcon, Resize as ResizeIcon, Compress as CompressIcon, WaterDamage as WatermarkIcon, Photo as PhotoIcon } from '@mui/icons-material';
+import { UploadFile as UploadFileIcon, Delete as DeleteIcon, OpenInFull as ResizeIcon, Compress as CompressIcon, WaterDamage as WatermarkIcon, Photo as PhotoIcon } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import { PDFFile, Page, PaperSizePreset } from './types';
-import { uploadPDF, getPages, deletePages, reorderPages, resizePages, compressPDF, addTextWatermark, convertToImage } from './services/api';
+import { uploadPDF, getPages, deletePages, resizePages, compressPDF, addTextWatermark, convertToImage } from './services/api';
 import './App.css';
 
 // 紙張尺寸預設值
@@ -114,7 +114,6 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      const size = PAPER_SIZES[targetSize];
       const response = await resizePages(
         currentPdfId,
         { preset: targetSize, customWidth: null, customHeight: null },
