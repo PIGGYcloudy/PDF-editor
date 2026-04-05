@@ -61,8 +61,26 @@ PDF-editor/
 ### 系統需求
 
 - Python 3.11+
-- Node.js 18+
+- Node.js 18+ (如未安裝，請先從 https://nodejs.org/ 下載並安裝)
 - Poppler (用於 pdf2image)
+
+### Node.js 安裝 (如尚未安裝)
+
+**Windows**:
+1. 前往 https://nodejs.org/ 下載 LTS 版本
+2. 執行安裝程式，選擇「Add to PATH」選項
+3. 驗證安裝：`node --version` 和 `npm --version`
+
+**macOS**:
+```bash
+brew install node
+```
+
+**Ubuntu/Debian**:
+```bash
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
 
 ### 後端設定
 
@@ -103,10 +121,14 @@ sudo apt-get install poppler-utils
 
 ```bash
 cd backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 7999
 ```
 
+> **注意**: 如果端口 7999 被佔用，可以修改為其他可用端口，並同步更新 `frontend/vite.config.ts` 中的代理目標。
+
 ### 前端設定
+
+> **注意**: 在安裝前端依賴前，請確保已安裝 Node.js 和 npm。
 
 1. 安裝依賴：
 
@@ -122,6 +144,8 @@ npm run dev
 ```
 
 3. 開啟瀏覽器訪問 http://localhost:5173
+
+> **注意**: 前端預設代理到後端端口 7999。如果後端運行在其他端口，請修改 `frontend/vite.config.ts` 中的 `target` 配置。
 
 ## 使用說明
 
