@@ -1,0 +1,49 @@
+# 開發環境 Dockerfile - 支援熱重新載入
+# 此 Dockerfile 用於開發環境，允許代碼變更時自動重新載入
+
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /app
+
+COPY frontend/package*.json ./
+RUN npm install
+
+COPY frontend/ .
+
+# 建構前端
+RUN npm run build
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 安裝系統依賴
+RUN apt-get update && apt-get install -y \
+    poppler-utils \
+    nginx \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安裝 Python 依賴
+COPY backend/requirements.txt ./backend/
+RUN pip install --no-cache-dir -r ./backend/requirements.txt
+
+# 複製後端代碼
+COPY backend/app ./app
+
+# 複製前端建構產出
+COPY --from=frontend-builder /app/dist /var/www/html
+
+# 建立目錄
+RUN mkdir -p /app/uploads /app/outputs
+
+# 複製 Nginx 配置
+COPY nginx.dev.conf /etc/nginx/sites-available/default
+
+# 複製啟動腳本
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
+# 暴露端口
+EXPOSE 80 7999
+
+CMD ["/start.sh"]

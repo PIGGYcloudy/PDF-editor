@@ -61,3 +61,6 @@ coverage/
 *.tmp
 *.temp
 *.bak
+
+# Docker (只忽略 .dockerignore，保留 Dockerfile 和 docker-compose.yml)
+.dockerignore

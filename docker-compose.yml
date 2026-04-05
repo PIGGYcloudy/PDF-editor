@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  # 後端服務
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "7999:7999"
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/outputs:/app/outputs
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - pdf-editor-network
+    restart: unless-stopped
+
+  # 前端服務
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - pdf-editor-network
+    restart: unless-stopped
+
+networks:
+  pdf-editor-network:
+    driver: bridge
