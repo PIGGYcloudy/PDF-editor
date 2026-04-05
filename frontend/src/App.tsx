@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Box, Container, Typography, Paper, Button, CircularProgress, Alert, Grid, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Modal, Stack, Checkbox, FormControlLabel } from '@mui/material';
+import { Box, Container, Typography, Paper, Button, CircularProgress, Alert, Grid, IconButton, Modal, Stack, Checkbox } from '@mui/material';
 import { UploadFile as UploadFileIcon, Delete as DeleteIcon, OpenInFull as ResizeIcon, Compress as CompressIcon, WaterDamage as WatermarkIcon, Photo as PhotoIcon, Fullscreen as PreviewIcon, ContentPaste as MergeIcon, Download as DownloadIcon, Close as CloseIcon, DragIndicator } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import { PDFFile, Page, PaperSizePreset } from './types';
@@ -310,7 +310,7 @@ function App() {
   };
 
   // 拖曳結束
-  const handleDragOver = (e: DragEvent, targetPageNumber: number) => {
+  const handleDragOver = (e: any, targetPageNumber: number) => {
     e.preventDefault();
     if (draggedPage === null || draggedPage === targetPageNumber) return;
 
@@ -398,19 +398,59 @@ function App() {
         {/* PDF 檔案列表 */}
         {pdfFiles.length > 0 && (
           <Paper sx={{ p: 3, mb: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              PDF 檔案
-            </Typography>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+              <Typography variant="h6">PDF 檔案</Typography>
+              {selectedForMerge.size > 0 && (
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={handleMergePDFs}
+                  startIcon={<MergeIcon />}
+                >
+                  合併選中的 PDF ({selectedForMerge.size})
+                </Button>
+              )}
+            </Stack>
             <Grid container spacing={2}>
               {pdfFiles.map((file) => (
-                <Grid item key={file.id}>
-                  <Button
-                    variant={currentPdfId === file.id ? 'contained' : 'outlined'}
-                    onClick={() => handleSelectPdf(file.id)}
-                    startIcon={<UploadFileIcon />}
+                <Grid item key={file.id} xs={12} sm={6} md={4}>
+                  <Paper
+                    sx={{
+                      p: 2,
+                      border: selectedForMerge.has(file.id) ? '2px solid #1976d2' : '1px solid #e0e0e0',
+                      borderRadius: 2,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      '&:hover': {
+                        boxShadow: 3,
+                      },
+                    }}
+                    onClick={() => handleToggleMergeSelect(file.id)}
                   >
-                    {file.name} ({file.pageCount} 頁)
-                  </Button>
+                    <Stack direction="row" spacing={2} alignItems="center">
+                      <Checkbox
+                        checked={selectedForMerge.has(file.id)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          handleToggleMergeSelect(file.id);
+                        }}
+                      />
+                      <Button
+                        variant={currentPdfId === file.id ? 'contained' : 'outlined'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelectPdf(file.id);
+                        }}
+                        startIcon={<UploadFileIcon />}
+                        sx={{ flexGrow: 1 }}
+                      >
+                        {file.name}
+                      </Button>
+                      <Typography variant="body2" color="text.secondary">
+                        {file.pageCount} 頁
+                      </Typography>
+                    </Stack>
+                  </Paper>
                 </Grid>
               ))}
             </Grid>
@@ -473,6 +513,16 @@ function App() {
                   startIcon={<PhotoIcon />}
                 >
                   轉換為圖片
+                </Button>
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  onClick={handleDownloadPDF}
+                  startIcon={<DownloadIcon />}
+                >
+                  下載 PDF
                 </Button>
               </Grid>
             </Grid>
@@ -683,32 +733,113 @@ function App() {
               頁面預覽 ({pages.length} 頁)
             </Typography>
             <Grid container spacing={2}>
-              {pages.map((page) => (
-                <Grid item xs={6} sm={4} md={3} lg={2} key={page.pageNumber}>
-                  <Box
-                    onClick={() => handleTogglePage(page.pageNumber)}
-                    sx={{
-                      border: selectedPages.has(page.pageNumber) ? '3px solid #1976d2' : '2px solid #ddd',
-                      borderRadius: 2,
-                      p: 1,
-                      cursor: 'pointer',
-                      textAlign: 'center',
-                      bgcolor: selectedPages.has(page.pageNumber) ? '#e3f2fd' : '#fff',
-                      transition: 'all 0.2s',
-                    }}
-                  >
-                    <Typography variant="body2" fontWeight="bold">
-                      頁面 {page.pageNumber}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {page.width} x {page.height} pt
-                    </Typography>
-                  </Box>
-                </Grid>
-              ))}
+              {pagesOrder.map((pageNumber) => {
+                const page = pages.find(p => p.pageNumber === pageNumber);
+                if (!page) return null;
+                return (
+                  <Grid item xs={6} sm={4} md={3} lg={2} key={page.pageNumber}>
+                    <Box
+                      draggable
+                      onDragStart={() => handleDragStart(pageNumber)}
+                      onDragOver={(e) => handleDragOver(e, pageNumber)}
+                      onDragEnd={handleDragEnd}
+                      onClick={() => handleTogglePage(pageNumber)}
+                      sx={{
+                        border: selectedPages.has(pageNumber) ? '3px solid #1976d2' : '2px solid #ddd',
+                        borderRadius: 2,
+                        p: 1,
+                        cursor: 'grab',
+                        textAlign: 'center',
+                        bgcolor: selectedPages.has(pageNumber) ? '#e3f2fd' : '#fff',
+                        transition: 'all 0.2s',
+                        '&:hover': {
+                          boxShadow: 2,
+                        },
+                        '&[draggable="true"]:drag': {
+                          opacity: 0.5,
+                        },
+                      }}
+                    >
+                      <Stack direction="row" justifyContent="center" alignItems="center" spacing={1}>
+                        <DragIndicator fontSize="small" color="action" />
+                        <Typography variant="body2" fontWeight="bold">
+                          頁面 {pageNumber}
+                        </Typography>
+                      </Stack>
+                      <Typography variant="caption" color="text.secondary">
+                        {page.width} x {page.height} pt
+                      </Typography>
+                      <Box sx={{ mt: 1 }}>
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenPreview(pageNumber);
+                          }}
+                        >
+                          <PreviewIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    </Box>
+                  </Grid>
+                );
+              })}
             </Grid>
+            {pagesOrder.length > 0 && pagesOrder.join(',') !== pages.map(p => p.pageNumber).join(',') && (
+              <Box sx={{ mt: 2, textAlign: 'center' }}>
+                <Button
+                  variant="contained"
+                  onClick={handleApplyPageOrder}
+                  disabled={loading}
+                >
+                  {loading ? <CircularProgress size={24} /> : '應用排序'}
+                </Button>
+              </Box>
+            )}
           </Paper>
         )}
+
+        {/* 預覽 Modal */}
+        <Modal
+          open={!!previewPage}
+          onClose={handleClosePreview}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Box
+            sx={{
+              position: 'relative',
+              bgcolor: 'white',
+              borderRadius: 2,
+              p: 2,
+              maxWidth: '90vw',
+              maxHeight: '90vh',
+              overflow: 'auto',
+            }}
+          >
+            <IconButton
+              onClick={handleClosePreview}
+              sx={{ position: 'absolute', top: 8, right: 8, zIndex: 1 }}
+            >
+              <CloseIcon />
+            </IconButton>
+            {previewPage && (
+              <>
+                <Typography variant="h6" sx={{ mb: 2, textAlign: 'center' }}>
+                  頁面 {previewPage.pageNumber} 預覽
+                </Typography>
+                <img
+                  src={previewPage.imageUrl}
+                  alt={`Page ${previewPage.pageNumber}`}
+                  style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
+                />
+              </>
+            )}
+          </Box>
+        </Modal>
       </Container>
     </Box>
   );
