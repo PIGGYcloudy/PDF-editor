@@ -214,3 +214,26 @@ class PDFService:
     def get_file_size(file_path: Path) -> int:
         """獲取檔案大小 (bytes)"""
         return file_path.stat().st_size
+
+    @staticmethod
+    def merge_pdfs(pdf_paths: List[Path]) -> Path:
+        """
+        合併多個 PDF 檔案
+
+        Args:
+            pdf_paths: PDF 檔案路徑列表
+
+        Returns:
+            合併後的 PDF 檔案路徑
+        """
+        if len(pdf_paths) < 2:
+            raise ValueError("至少需要兩個 PDF 檔案才能合併")
+
+        writer = PdfWriter()
+
+        for pdf_path in pdf_paths:
+            reader = PdfReader(str(pdf_path))
+            for page in reader.pages:
+                writer.add_page(page)
+
+        return save_output_pdf(writer, "merged")

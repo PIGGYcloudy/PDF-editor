@@ -1,9 +1,9 @@
 import { useState, useCallback } from 'react';
-import { Box, Container, Typography, Paper, Button, CircularProgress, Alert, Grid } from '@mui/material';
-import { UploadFile as UploadFileIcon, Delete as DeleteIcon, OpenInFull as ResizeIcon, Compress as CompressIcon, WaterDamage as WatermarkIcon, Photo as PhotoIcon } from '@mui/icons-material';
+import { Box, Container, Typography, Paper, Button, CircularProgress, Alert, Grid, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Modal, Stack, Checkbox, FormControlLabel } from '@mui/material';
+import { UploadFile as UploadFileIcon, Delete as DeleteIcon, OpenInFull as ResizeIcon, Compress as CompressIcon, WaterDamage as WatermarkIcon, Photo as PhotoIcon, Fullscreen as PreviewIcon, ContentPaste as MergeIcon, Download as DownloadIcon, Close as CloseIcon, DragIndicator } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import { PDFFile, Page, PaperSizePreset } from './types';
-import { uploadPDF, getPages, deletePages, resizePages, compressPDF, addTextWatermark, convertToImage } from './services/api';
+import { uploadPDF, getPages, deletePages, resizePages, compressPDF, addTextWatermark, convertToImage, mergePDFs, getPagePreview, downloadPDF, reorderPages } from './services/api';
 import './App.css';
 
 // 紙張尺寸預設值
@@ -24,10 +24,14 @@ function App() {
   const [currentPdfId, setCurrentPdfId] = useState<string | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
+  const [selectedForMerge, setSelectedForMerge] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [previewPage, setPreviewPage] = useState<{ pageNumber: number; imageUrl: string } | null>(null);
+  const [draggedPage, setDraggedPage] = useState<number | null>(null);
+  const [pagesOrder, setPagesOrder] = useState<number[]>([]);
 
   // 檔案上傳
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -56,36 +60,6 @@ function App() {
     },
     multiple: true,
   });
-
-  // 載入頁面資訊
-  const loadPages = async (pdfId: string) => {
-    try {
-      const response = await getPages(pdfId);
-      setPages(response.pages);
-    } catch (err) {
-      setError('載入頁面資訊失敗。');
-    }
-  };
-
-  // 切換 PDF 檔案
-  const handleSelectPdf = async (pdfId: string) => {
-    setCurrentPdfId(pdfId);
-    await loadPages(pdfId);
-    setSelectedPages(new Set());
-  };
-
-  // 切換頁面選取狀態
-  const handleTogglePage = (pageNumber: number) => {
-    setSelectedPages((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(pageNumber)) {
-        newSet.delete(pageNumber);
-      } else {
-        newSet.add(pageNumber);
-      }
-      return newSet;
-    });
-  };
 
   // 刪除頁面
   const handleDeletePages = async () => {
@@ -214,6 +188,164 @@ function App() {
       setActiveTab(null);
     } catch (err) {
       setError('轉換失敗。');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 載入頁面時初始化頁面順序
+  const loadPages = async (pdfId: string) => {
+    try {
+      const response = await getPages(pdfId);
+      setPages(response.pages);
+      setPagesOrder(response.pages.map(p => p.pageNumber));
+    } catch (err) {
+      setError('載入頁面資訊失敗。');
+    }
+  };
+
+  // 切換 PDF 檔案
+  const handleSelectPdf = async (pdfId: string) => {
+    setCurrentPdfId(pdfId);
+    await loadPages(pdfId);
+    setSelectedPages(new Set());
+  };
+
+  // 切換頁面選取狀態
+  const handleTogglePage = (pageNumber: number) => {
+    setSelectedPages((prev: Set<number>) => {
+      const newSet = new Set(prev);
+      if (newSet.has(pageNumber)) {
+        newSet.delete(pageNumber);
+      } else {
+        newSet.add(pageNumber);
+      }
+      return newSet;
+    });
+  };
+
+  // 切換合併選取狀態
+  const handleToggleMergeSelect = (pdfId: string) => {
+    setSelectedForMerge((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(pdfId)) {
+        newSet.delete(pdfId);
+      } else {
+        newSet.add(pdfId);
+      }
+      return newSet;
+    });
+  };
+
+  // 合併 PDF
+  const handleMergePDFs = async () => {
+    if (selectedForMerge.size < 2) {
+      setError('請至少選擇兩個 PDF 進行合併');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await mergePDFs(Array.from(selectedForMerge));
+      const newFile: PDFFile = {
+        id: response.newPdfId,
+        name: response.name,
+        size: 0,
+        pageCount: response.pageCount,
+        uploadedAt: new Date().toISOString(),
+      };
+      setPdfFiles((prev: PDFFile[]) => [...prev, newFile]);
+      setCurrentPdfId(response.newPdfId);
+      await loadPages(response.newPdfId);
+      setSelectedForMerge(new Set());
+      setSuccess('PDF 合併成功！');
+    } catch (err) {
+      setError('合併 PDF 失敗。');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 下載 PDF
+  const handleDownloadPDF = async () => {
+    if (!currentPdfId) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      await downloadPDF(currentPdfId);
+      setSuccess('PDF 下載成功！');
+    } catch (err) {
+      setError('下載 PDF 失敗。');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 打開預覽
+  const handleOpenPreview = async (pageNumber: number) => {
+    if (!currentPdfId) return;
+
+    try {
+      const blob = await getPagePreview(currentPdfId, pageNumber);
+      const imageUrl = URL.createObjectURL(blob);
+      setPreviewPage({ pageNumber, imageUrl });
+    } catch (err) {
+      setError('載入預覽失敗。');
+    }
+  };
+
+  // 關閉預覽
+  const handleClosePreview = () => {
+    if (previewPage) {
+      URL.revokeObjectURL(previewPage.imageUrl);
+    }
+    setPreviewPage(null);
+  };
+
+  // 拖曳開始
+  const handleDragStart = (pageNumber: number) => {
+    setDraggedPage(pageNumber);
+  };
+
+  // 拖曳結束
+  const handleDragOver = (e: DragEvent, targetPageNumber: number) => {
+    e.preventDefault();
+    if (draggedPage === null || draggedPage === targetPageNumber) return;
+
+    setPagesOrder((prev) => {
+      const newOrder = [...prev];
+      const draggedIndex = newOrder.indexOf(draggedPage);
+      const targetIndex = newOrder.indexOf(targetPageNumber);
+
+      // 移除拖曳的頁面
+      newOrder.splice(draggedIndex, 1);
+      // 插入到新位置
+      newOrder.splice(targetIndex, 0, draggedPage);
+
+      return newOrder;
+    });
+  };
+
+  // 拖曳結束處理
+  const handleDragEnd = () => {
+    setDraggedPage(null);
+  };
+
+  // 應用頁面排序
+  const handleApplyPageOrder = async () => {
+    if (!currentPdfId || pagesOrder.length !== pages.length) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await reorderPages(currentPdfId, pagesOrder);
+      setCurrentPdfId(response.newPdfId);
+      await loadPages(response.newPdfId);
+      setSuccess('頁面排序已更新！');
+    } catch (err) {
+      setError('更新頁面排序失敗。');
     } finally {
       setLoading(false);
     }

@@ -182,4 +182,41 @@ export async function deletePDF(pdfId: string): Promise<void> {
   await api.delete(`/pdf/${pdfId}`);
 }
 
+// 合併 PDF
+export async function mergePDFs(pdfIds: string[]): Promise<{ newPdfId: string; name: string; pageCount: number }> {
+  const formData = new FormData();
+  pdfIds.forEach((id) => formData.append('pdf_ids', id));
+  
+  const response = await api.post<{ newPdfId: string; name: string; pageCount: number }>('/pdf/merge', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
+}
+
+// 獲取頁面預覽
+export async function getPagePreview(pdfId: string, pageNumber: number): Promise<Blob> {
+  const response = await api.get(`/pdf/preview/${pdfId}/${pageNumber}`, {
+    responseType: 'blob',
+  });
+  return response.data;
+}
+
+// 下載 PDF
+export async function downloadPDF(pdfId: string): Promise<void> {
+  const response = await api.get(`/pdf/download/${pdfId}`, {
+    responseType: 'blob',
+  });
+  
+  const url = window.URL.createObjectURL(new Blob([response.data]));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${pdfId}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
 export default api;

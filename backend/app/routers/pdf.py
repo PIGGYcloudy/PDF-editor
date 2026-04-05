@@ -357,6 +357,97 @@ async def get_thumbnail(pdf_id: str, page_number: int, size: str = "medium"):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/merge")
+async def merge_pdfs(pdf_ids: List[str] = Form(...)):
+    """合併多個 PDF 檔案"""
+    if len(pdf_ids) < 2:
+        raise HTTPException(status_code=400, detail="至少需要兩個 PDF 檔案才能合併")
+
+    # 檢查所有 PDF 是否存在
+    for pdf_id in pdf_ids:
+        if pdf_id not in pdf_files:
+            raise HTTPException(status_code=404, detail=f"PDF 檔案不存在：{pdf_id}")
+
+    try:
+        # 合併 PDF
+        merged_path = PDFService.merge_pdfs([pdf_files[pdf_id] for pdf_id in pdf_ids])
+        merged_id = merged_path.stem.split("_")[0]
+
+        # 儲存映射
+        pdf_files[merged_id] = merged_path
+
+        # 獲取頁面數量
+        page_count = get_pdf_page_count(merged_path)
+
+        return {
+            "newPdfId": merged_id,
+            "name": f"merged_{merged_id}.pdf",
+            "pageCount": page_count
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/preview/{pdf_id}/{page_number}")
+async def get_page_preview(pdf_id: str, page_number: int):
+    """獲取單頁高解析度預覽"""
+    if pdf_id not in pdf_files:
+        raise HTTPException(status_code=404, detail="PDF 檔案不存在")
+
+    pdf_path = pdf_files[pdf_id]
+
+    try:
+        # 獲取頁面資訊以驗證頁面號
+        pages_info = get_pdf_page_info(pdf_path)
+        if page_number < 1 or page_number > len(pages_info):
+            raise HTTPException(status_code=400, detail=f"頁面號不有效：{page_number}")
+
+        # 生成高解析度預覽 (300 DPI)
+        from pdf2image import convert_from_path
+        images = convert_from_path(
+            pdf_path,
+            first_page=page_number,
+            last_page=page_number,
+            dpi=300
+        )
+
+        if not images:
+            raise HTTPException(status_code=500, detail="無法生成預覽")
+
+        # 轉換為 PNG
+        img_byte_arr = io.BytesIO()
+        images[0].save(img_byte_arr, format='PNG')
+        img_byte_arr.seek(0)
+
+        return StreamingResponse(
+            img_byte_arr,
+            media_type="image/png",
+            headers={"Content-Disposition": f"inline; filename=page_{page_number}.png"}
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/download/{pdf_id}")
+async def download_pdf(pdf_id: str):
+    """下載 PDF 檔案"""
+    if pdf_id not in pdf_files:
+        raise HTTPException(status_code=404, detail="PDF 檔案不存在")
+
+    pdf_path = pdf_files[pdf_id]
+
+    if not pdf_path.exists():
+        raise HTTPException(status_code=404, detail="檔案不存在")
+
+    return FileResponse(
+        path=pdf_path,
+        filename=pdf_path.name,
+        media_type="application/pdf"
+    )
+
+
 @router.delete("/{pdf_id}")
 async def delete_pdf(pdf_id: str):
     """刪除 PDF 檔案"""
