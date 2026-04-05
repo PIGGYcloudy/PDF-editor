@@ -52,13 +52,52 @@ PDF-editor/
 │   ├── package.json
 │   └── vite.config.ts
 ├── plans/                   # 計畫文件
+├── docker-compose.yml       # Docker Compose 配置
+├── Dockerfile.development   # 開發環境 Dockerfile
 ├── .gitignore
 └── README.md
 ```
 
-## 安裝與設定
+## 快速開始 (Docker)
+
+> **推薦方式**: 使用 Docker 運行，無需安裝 Python、Node.js 等環境
 
 ### 系統需求
+- Docker 和 Docker Compose
+
+### 啟動步驟
+
+```bash
+# 1. 建構並啟動所有服務
+docker-compose up --build
+
+# 2. 開啟瀏覽器訪問 http://localhost
+```
+
+應用程式將在以下端口運行：
+- **前端**: http://localhost
+- **後端 API**: http://localhost:7999
+- **API 文檔**: http://localhost:7999/docs
+
+### 其他 Docker 命令
+
+```bash
+# 背景運行
+docker-compose up -d
+
+# 查看日誌
+docker-compose logs -f
+
+# 停止服務
+docker-compose down
+
+# 停止並刪除卷（將刪除上傳和輸出檔案）
+docker-compose down -v
+```
+
+## 本地安裝與設定
+
+### 系統需求 (本地開發)
 
 - Python 3.11+
 - Node.js 18+ (如未安裝，請先從 https://nodejs.org/ 下載並安裝)
