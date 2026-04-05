@@ -20,7 +20,7 @@ UPLOADS_DIR.mkdir(exist_ok=True)
 OUTPUTS_DIR.mkdir(exist_ok=True)
 
 # 檔案設定
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 ALLOWED_FILE_TYPES = ["application/pdf"]
 
 # 圖片設定
