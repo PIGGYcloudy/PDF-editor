@@ -773,6 +773,25 @@ function App() {
                         },
                       }}
                     >
+                      {/* 顯示縮圖 */}
+                      {page.thumbnailUrl && (
+                        <Box sx={{ mb: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 100 }}>
+                          <img
+                            src={page.thumbnailUrl}
+                            alt={`頁面 ${pageNumber}`}
+                            style={{
+                              maxWidth: '100%',
+                              maxHeight: '150px',
+                              objectFit: 'contain',
+                              border: '1px solid #eee',
+                              borderRadius: 4,
+                            }}
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        </Box>
+                      )}
                       <Stack direction="row" justifyContent="center" alignItems="center" spacing={1}>
                         <DragIndicator fontSize="small" color="action" />
                         <Typography variant="body2" fontWeight="bold">

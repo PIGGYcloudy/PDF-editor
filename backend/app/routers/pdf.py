@@ -67,7 +67,7 @@ async def upload_pdf(files: List[UploadFile] = File(...)):
         if len(content) > MAX_FILE_SIZE:
             raise HTTPException(
                 status_code=413,
-                detail=f"檔案超過大小限制：{file.filename} (最大 50MB)"
+                detail=f"檔案超過大小限制：{file.filename} (最大 100MB)"
             )
 
         # 儲存檔案
@@ -102,7 +102,7 @@ async def get_pages(pdf_id: str, thumbnail_size: str = "medium"):
 
     # 添加縮圖 URL
     for page in pages_info:
-        page["thumbnailUrl"] = f"/api/thumbnail/{pdf_id}/page/{page['pageNumber']}?size={thumbnail_size}"
+        page["thumbnailUrl"] = f"/api/pdf/thumbnail/{pdf_id}/page/{page['pageNumber']}?size={thumbnail_size}"
 
     return PagesResponse(
         pdfId=pdf_id,
