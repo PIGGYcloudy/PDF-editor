@@ -361,7 +361,7 @@ function App() {
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f5f5f5' }}>
       <Container maxWidth="xl" sx={{ py: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom align="center" sx={{ mb: 4 }}>
+        <Typography variant="h4" component="h1" gutterBottom align="center" sx={{ mb: 4, color: '#000000' }}>
           PDF 編輯器
         </Typography>
 

@@ -1,7 +1,6 @@
 """
 PDF 浮水印服務
 """
-import io
 from pathlib import Path
 from typing import List, Optional
 
@@ -122,57 +121,65 @@ class WatermarkService:
         if image.mode != "RGBA":
             image = image.convert("RGBA")
 
-        # 創建透明圖層
-        watermark_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(watermark_layer)
-
         # 嘗試載入字體，如果失敗則使用默認字體
         try:
             font = ImageFont.truetype("arial.ttf", font_size)
         except OSError:
             font = ImageFont.load_default()
 
-        # 獲取文字尺寸
-        bbox = draw.textbbox((0, 0), text, font=font)
+        # 創建僅包含文字的圖層
+        draw_temp = ImageDraw.Draw(Image.new('RGBA', (1, 1)))
+        bbox = draw_temp.textbbox((0, 0), text, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
 
-        # 計算位置
-        img_width, img_height = image.size
-        rgb_color = hex_to_rgb(color)
+        text_layer = Image.new('RGBA', (text_width, text_height), (0, 0, 0, 0))
+        text_draw = ImageDraw.Draw(text_layer)
 
-        # 根據透明度調整顏色
+        # 設置顏色（包含透明度）
+        rgb_color = hex_to_rgb(color)
         alpha = int(255 * opacity)
         text_color = (*rgb_color, alpha)
+        text_draw.text((0, 0), text, font=font, fill=text_color)
+
+        # 旋轉文字圖層
+        if rotation != 0:
+            text_layer = text_layer.rotate(
+                rotation,
+                expand=True,
+                resample=Image.BICUBIC,
+                fillcolor=(0, 0, 0, 0)
+            )
+
+        # 計算位置
+        text_layer_width, text_layer_height = text_layer.size
+        img_width, img_height = image.size
 
         if position == "center":
-            x = (img_width - text_width) / 2
-            y = (img_height - text_height) / 2
+            x = (img_width - text_layer_width) // 2
+            y = (img_height - text_layer_height) // 2
         elif position == "top-left":
             x = 10
             y = 10
         elif position == "top-right":
-            x = img_width - text_width - 10
+            x = img_width - text_layer_width - 10
             y = 10
         elif position == "bottom-left":
             x = 10
-            y = img_height - text_height - 10
+            y = img_height - text_layer_height - 10
         elif position == "bottom-right":
-            x = img_width - text_width - 10
-            y = img_height - text_height - 10
+            x = img_width - text_layer_width - 10
+            y = img_height - text_layer_height - 10
         else:
-            x = (img_width - text_width) / 2
-            y = (img_height - text_height) / 2
+            x = (img_width - text_layer_width) // 2
+            y = (img_height - text_layer_height) // 2
 
-        # 繪製文字
-        draw.text((x, y), text, font=font, fill=text_color)
-
-        # 旋轉浮水印
-        if rotation != 0:
-            watermark_layer = watermark_layer.rotate(rotation, expand=True)
+        # 創建透明圖層並合成
+        watermark_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        watermark_layer.paste(text_layer, (x, y), text_layer)
 
         # 合併圖層
-        image = Image.alpha_composite(image, watermark_layer.resize(image.size))
+        image = Image.alpha_composite(image, watermark_layer)
 
         return image
 

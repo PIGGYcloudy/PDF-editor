@@ -1,11 +1,9 @@
 """
 PDF 壓縮服務
 """
-import io
 from pathlib import Path
 from typing import Tuple
 
-from pypdf import PdfReader, PdfWriter
 from PIL import Image
 
 
@@ -31,26 +29,8 @@ class CompressService:
         Returns:
             (新 PDF 路徑，原始大小，壓縮後大小)
         """
-        from app.utils.pdf_utils import save_output_pdf
-
-        reader = PdfReader(str(pdf_path))
-        writer = PdfWriter()
-
-        original_size = pdf_path.stat().st_size
-
-        for page in reader.pages:
-            # 添加頁面到新的 PDF
-            writer.add_page(page)
-
-            # 注意：pypdf 本身不直接支援圖片壓縮
-            # 實際的壓縮需要更複雜的處理，這裡只是基本框架
-
-        # 儲存壓縮後的 PDF
-        new_path = save_output_pdf(writer, "compressed")
-
-        compressed_size = new_path.stat().st_size
-
-        return new_path, original_size, compressed_size
+        # 直接呼叫 compress_with_image_resizing 來真正壓縮 PDF
+        return CompressService.compress_with_image_resizing(pdf_path, quality, max_image_width)
 
     @staticmethod
     def compress_with_image_resizing(
@@ -61,8 +41,6 @@ class CompressService:
         """
         通過調整圖片大小來壓縮 PDF
 
-        這是一個更複雜的實現，需要將 PDF 轉換為圖片再壓縮
-
         Args:
             pdf_path: PDF 檔案路徑
             quality: 圖片壓縮品質 (1-100)
@@ -71,6 +49,7 @@ class CompressService:
         Returns:
             (新 PDF 路徑，原始大小，壓縮後大小)
         """
+        from pypdf import PdfReader, PdfWriter
         from pdf2image import convert_from_path
         from app.utils.pdf_utils import save_output_pdf
 
@@ -82,6 +61,7 @@ class CompressService:
         # 壓縮每張圖片
         compressed_images = []
         for img in images:
+            original_img_size = img.size
             # 調整圖片大小
             if img.width > max_image_width:
                 ratio = max_image_width / img.width
@@ -106,7 +86,8 @@ class CompressService:
             compressed_images[0].save(
                 str(temp_path),
                 "PDF",
-                resolution=100.0
+                resolution=100.0,
+                quality=quality
             )
 
             # 添加其餘頁面
@@ -118,12 +99,12 @@ class CompressService:
                     pdf_writer.add_page(page)
                 temp_path.unlink()
 
-            # 保存最終的 PDF
-            new_path = save_output_pdf(pdf_writer, "compressed")
-            compressed_size = new_path.stat().st_size
-
-            return new_path, original_size, compressed_size
+                # 保存最終的 PDF
+                new_path = save_output_pdf(pdf_writer, "compressed")
+                compressed_size = new_path.stat().st_size
+                return new_path, original_size, compressed_size
 
         # 如果沒有圖片，返回原始檔案的副本
-        new_path = save_output_pdf(PdfWriter(), "compressed")
+        writer = PdfWriter()
+        new_path = save_output_pdf(writer, "compressed")
         return new_path, original_size, original_size

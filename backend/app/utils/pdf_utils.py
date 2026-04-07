@@ -24,10 +24,25 @@ def get_pdf_page_count(pdf_path: Path) -> int:
     return len(reader.pages)
 
 
-def get_pdf_page_info(pdf_path: Path, page_number: int) -> Tuple[int, int]:
-    """獲取 PDF 頁面尺寸 (寬度，高度) - 單位：points"""
+def get_single_page_size(pdf_path: Path, page_number: int) -> Tuple[int, int]:
+    """
+    獲取 PDF 單頁的尺寸資訊
+
+    Args:
+        pdf_path: PDF 檔案路徑
+        page_number: 頁面號碼（從 1 開始）
+
+    Returns:
+        (寬度，高度) 單位為點（points）
+
+    Raises:
+        IndexError: 當 page_number 超出範圍時
+    """
     reader = PdfReader(str(pdf_path))
-    page = reader.pages[page_number - 1]  # page_number 是 1-based
+    if page_number < 1 or page_number > len(reader.pages):
+        raise IndexError(f"Page number {page_number} out of range")
+
+    page = reader.pages[page_number - 1]
     media_box = page.mediabox
     return int(media_box.width), int(media_box.height)
 

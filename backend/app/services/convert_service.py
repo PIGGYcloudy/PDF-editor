@@ -8,12 +8,11 @@ from pathlib import Path
 from typing import List, Optional
 
 from PIL import Image
-from pypdf import PdfReader, PdfWriter
+from pypdf import PdfReader
 from pdf2image import convert_from_path
 
 from app.config import OUTPUTS_DIR
-from app.utils.pdf_utils import generate_unique_id, validate_page_numbers, save_output_pdf
-
+from app.utils.pdf_utils import generate_unique_id, validate_page_numbers
 
 class ConvertService:
     """PDF 格式轉換服務"""
@@ -51,22 +50,24 @@ class ConvertService:
         output_dir = OUTPUTS_DIR / f"images_{unique_id}"
         output_dir.mkdir(exist_ok=True)
 
-        # 轉換頁面為圖片
-        images = convert_from_path(
-            str(pdf_path),
-            dpi=dpi,
-            first_page=page_numbers[0],
-            last_page=page_numbers[-1]
-        )
-
-        # 保存每張圖片
-        image_count = 0
+        # 逐頁轉換，避免非連續頁面時的索引錯位問題
         format_ext = "jpg" if output_format.lower() == "jpg" else "png"
         format_mime = "jpeg" if format_ext == "jpg" else "png"
+        image_count = 0
 
-        for idx, img in enumerate(images):
-            # 計算實際頁面號碼
-            page_num = page_numbers[idx]
+        for page_num in page_numbers:
+            # 轉換單頁為圖片
+            images = convert_from_path(
+                str(pdf_path),
+                dpi=dpi,
+                first_page=page_num,
+                last_page=page_num
+            )
+            
+            if not images:
+                continue
+                
+            img = images[0]
 
             # 轉換為 RGB (如果格式是 JPG)
             if format_ext == "jpg" and img.mode != "RGB":

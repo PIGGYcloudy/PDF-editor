@@ -1,12 +1,20 @@
 """
 FastAPI 應用入口
 """
+import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import CORS_ORIGINS
 from app.routers import pdf, convert
+
+# 配置日誌
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='[%(asctime)s] %(levelname)s [%(name)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 # 創建 FastAPI 應用，設置最大上傳大小為 100MB
 app = FastAPI(
