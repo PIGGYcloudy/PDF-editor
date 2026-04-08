@@ -71,15 +71,17 @@ class WatermarkService:
 
         # 將圖片轉換回 PDF
         if processed_images:
-            # 保存為 PDF
+            # 使用 PIL 直接保存所有圖片為 PDF
             output_path = pdf_path.parent / "temp_watermark.pdf"
             processed_images[0].save(
                 str(output_path),
                 "PDF",
-                resolution=100.0
+                resolution=100.0,
+                save_all=True,
+                append_images=processed_images[1:]
             )
 
-            # 讀取並添加其餘頁面
+            # 讀取並重新保存以確保格式正確
             writer = PdfWriter()
             temp_reader = PdfReader(str(output_path))
 
@@ -109,7 +111,7 @@ class WatermarkService:
             image: PIL Image 對象
             text: 浮水印文字
             position: 位置
-            font_size: 字體大小
+            font_size: 字體大小（基準值，會根據頁面尺寸自動調整）
             color: 顏色 (hex)
             opacity: 透明度
             rotation: 旋轉角度
@@ -121,10 +123,32 @@ class WatermarkService:
         if image.mode != "RGBA":
             image = image.convert("RGBA")
 
-        # 嘗試載入字體，如果失敗則使用默認字體
-        try:
-            font = ImageFont.truetype("arial.ttf", font_size)
-        except OSError:
+        # 根據頁面尺寸自動調整字體大小
+        img_width, img_height = image.size
+        # 以頁面寬度的 15-20% 作為字體大小，確保可讀性
+        auto_font_size = int(min(img_width, img_height) * 0.15)
+        # 確保字體大小不會太小
+        auto_font_size = max(auto_font_size, 24)
+
+        # 嘗試載入粗體字體
+        font_paths = [
+            "arialbd.ttf",      # Arial Bold
+            "arialb.ttf",       # Arial Bold (alternative)
+            "arial.ttf",        # Arial (fallback)
+            "C:/Windows/Fonts/arialbd.ttf",
+            "C:/Windows/Fonts/arialb.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+        ]
+        
+        font = None
+        for font_path in font_paths:
+            try:
+                font = ImageFont.truetype(font_path, auto_font_size)
+                break
+            except (OSError, FileNotFoundError):
+                continue
+        
+        if font is None:
             font = ImageFont.load_default()
 
         # 創建僅包含文字的圖層
@@ -246,13 +270,17 @@ class WatermarkService:
 
         # 將圖片轉換回 PDF
         if processed_images:
+            # 使用 PIL 直接保存所有圖片為 PDF
             output_path = pdf_path.parent / "temp_watermark_img.pdf"
             processed_images[0].save(
                 str(output_path),
                 "PDF",
-                resolution=100.0
+                resolution=100.0,
+                save_all=True,
+                append_images=processed_images[1:]
             )
 
+            # 讀取並重新保存以確保格式正確
             writer = PdfWriter()
             temp_reader = PdfReader(str(output_path))
 

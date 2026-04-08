@@ -24,6 +24,32 @@ def get_pdf_page_count(pdf_path: Path) -> int:
     return len(reader.pages)
 
 
+def get_pdf_page_info(pdf_path: Path) -> List[dict]:
+    """
+    獲取 PDF 所有頁面的資訊
+    
+    Args:
+        pdf_path: PDF 檔案路徑
+    
+    Returns:
+        頁面資訊列表，每個元素包含 pageNumber, width, height
+    """
+    reader = PdfReader(str(pdf_path))
+    pages_info = []
+    
+    for idx, page in enumerate(reader.pages):
+        width = int(page.mediabox.width)
+        height = int(page.mediabox.height)
+        
+        pages_info.append({
+            "pageNumber": idx + 1,
+            "width": width,
+            "height": height,
+        })
+    
+    return pages_info
+
+
 def get_single_page_size(pdf_path: Path, page_number: int) -> Tuple[int, int]:
     """
     獲取 PDF 單頁的尺寸資訊

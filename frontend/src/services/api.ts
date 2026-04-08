@@ -4,11 +4,9 @@ import type {
   PagesResponse,
   DeletePagesResponse,
   ReorderPagesResponse,
-  ResizeResponse,
   CompressResponse,
   WatermarkResponse,
   ConvertResponse,
-  SizeSelection,
   TextWatermarkConfig,
   ImageWatermarkConfig,
 } from '../types';
@@ -59,24 +57,6 @@ export async function reorderPages(pdfId: string, pageOrder: number[]): Promise<
   const response = await api.post<ReorderPagesResponse>('/pdf/reorder-pages', {
     pdfId,
     pageOrder,
-  });
-  return response.data;
-}
-
-// 調整尺寸
-export async function resizePages(
-  pdfId: string,
-  targetSize: SizeSelection,
-  pages: 'all' | 'selected' = 'all',
-  selectedPageNumbers?: number[],
-  maintainAspectRatio: boolean = true
-): Promise<ResizeResponse> {
-  const response = await api.post<ResizeResponse>('/pdf/resize', {
-    pdfId,
-    targetSize,
-    pages,
-    selectedPageNumbers,
-    maintainAspectRatio,
   });
   return response.data;
 }

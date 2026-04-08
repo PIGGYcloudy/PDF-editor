@@ -21,22 +21,6 @@ export interface PageWithState extends Page {
   isDragging?: boolean;
 }
 
-// 紙張尺寸預設值
-export type PaperSizePreset = 'A3' | 'A4' | 'A5' | 'B2' | 'B3' | 'B4' | 'B5' | 'Letter' | 'Legal';
-
-// 紙張尺寸
-export interface PaperSize {
-  width: number;
-  height: number;
-}
-
-// 尺寸選擇
-export interface SizeSelection {
-  preset: PaperSizePreset | null;
-  customWidth: number | null;
-  customHeight: number | null;
-}
-
 // 浮水印類型
 export type WatermarkType = 'text' | 'image';
 
@@ -120,12 +104,6 @@ export interface DeletePagesResponse {
 export interface ReorderPagesResponse {
   newPdfId: string;
   pageCount: number;
-}
-
-// 尺寸調整回應
-export interface ResizeResponse {
-  newPdfId: string;
-  newSize: PaperSize;
 }
 
 // 壓縮回應

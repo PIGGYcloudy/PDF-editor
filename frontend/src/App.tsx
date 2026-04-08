@@ -1,23 +1,10 @@
 import { useState, useCallback } from 'react';
 import { Box, Container, Typography, Paper, Button, CircularProgress, Alert, Grid, IconButton, Stack } from '@mui/material';
-import { UploadFile as UploadFileIcon, Delete as DeleteIcon, OpenInFull as ResizeIcon, Compress as CompressIcon, WaterDamage as WatermarkIcon, Photo as PhotoIcon, ContentPaste as MergeIcon, Download as DownloadIcon, DragIndicator } from '@mui/icons-material';
+import { UploadFile as UploadFileIcon, Delete as DeleteIcon, Compress as CompressIcon, WaterDamage as WatermarkIcon, Photo as PhotoIcon, ContentPaste as MergeIcon, Download as DownloadIcon, DragIndicator } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
-import { PDFFile, Page, PaperSizePreset } from './types';
-import { uploadPDF, getPages, deletePages, resizePages, compressPDF, addTextWatermark, convertToImage, mergePDFs, downloadPDF, reorderPages, deletePDF as deletePDFApi } from './services/api';
+import { PDFFile, Page } from './types';
+import { uploadPDF, getPages, deletePages, compressPDF, addTextWatermark, convertToImage, mergePDFs, downloadPDF, reorderPages, deletePDF as deletePDFApi } from './services/api';
 import './App.css';
-
-// 紙張尺寸預設值
-const PAPER_SIZES: Record<PaperSizePreset, { width: number; height: number; label: string }> = {
-  A3: { width: 842, height: 1191, label: 'A3 (297 x 420 mm)' },
-  A4: { width: 595, height: 842, label: 'A4 (210 x 297 mm)' },
-  A5: { width: 420, height: 595, label: 'A5 (148 x 210 mm)' },
-  B2: { width: 1417, height: 2004, label: 'B2 (500 x 707 mm)' },
-  B3: { width: 1000, height: 1417, label: 'B3 (353 x 500 mm)' },
-  B4: { width: 709, height: 1000, label: 'B4 (250 x 353 mm)' },
-  B5: { width: 500, height: 709, label: 'B5 (176 x 250 mm)' },
-  Letter: { width: 612, height: 792, label: 'Letter (216 x 279 mm)' },
-  Legal: { width: 612, height: 1008, label: 'Legal (216 x 356 mm)' },
-};
 
 function App() {
   const [pdfFiles, setPdfFiles] = useState<PDFFile[]>([]);
@@ -74,31 +61,6 @@ function App() {
       setSuccess(`已刪除 ${selectedPages.size} 個頁面，剩餘 ${response.remainingPages} 頁。`);
     } catch (err) {
       setError('刪除頁面失敗。');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 調整尺寸
-  const [targetSize, setTargetSize] = useState<PaperSizePreset>('A4');
-  const handleResize = async () => {
-    if (!currentPdfId) return;
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await resizePages(
-        currentPdfId,
-        { preset: targetSize, customWidth: null, customHeight: null },
-        selectedPages.size > 0 ? 'selected' : 'all',
-        selectedPages.size > 0 ? Array.from(selectedPages) : undefined
-      );
-      setCurrentPdfId(response.newPdfId);
-      await loadPages(response.newPdfId);
-      setSuccess('尺寸調整成功！');
-      setActiveTab(null);
-    } catch (err) {
-      setError('尺寸調整失敗。');
     } finally {
       setLoading(false);
     }
@@ -491,16 +453,6 @@ function App() {
               <Grid item xs={12} sm={6} md={4}>
                 <Button
                   fullWidth
-                  variant={activeTab === 'resize' ? 'contained' : 'outlined'}
-                  onClick={() => setActiveTab(activeTab === 'resize' ? null : 'resize')}
-                  startIcon={<ResizeIcon />}
-                >
-                  調整尺寸
-                </Button>
-              </Grid>
-              <Grid item xs={12} sm={6} md={4}>
-                <Button
-                  fullWidth
                   variant={activeTab === 'compress' ? 'contained' : 'outlined'}
                   onClick={() => setActiveTab(activeTab === 'compress' ? null : 'compress')}
                   startIcon={<CompressIcon />}
@@ -558,41 +510,6 @@ function App() {
               disabled={selectedPages.size === 0 || loading}
             >
               {loading ? <CircularProgress size={24} /> : '刪除選取的頁面'}
-            </Button>
-          </Paper>
-        )}
-
-        {currentPdfId && activeTab === 'resize' && (
-          <Paper sx={{ p: 3, mb: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              調整尺寸
-            </Typography>
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" gutterBottom>選擇預設尺寸：</Typography>
-              <Grid container spacing={1}>
-                {Object.entries(PAPER_SIZES).map(([key, size]) => (
-                  <Grid item xs={6} sm={4} md={3} key={key}>
-                    <Button
-                      variant={targetSize === key ? 'contained' : 'outlined'}
-                      size="small"
-                      fullWidth
-                      onClick={() => setTargetSize(key as PaperSizePreset)}
-                    >
-                      {size.label}
-                    </Button>
-                  </Grid>
-                ))}
-              </Grid>
-            </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              {selectedPages.size > 0 ? `將調整 ${selectedPages.size} 個選取的頁面` : '將調整所有頁面'}
-            </Typography>
-            <Button
-              variant="contained"
-              onClick={handleResize}
-              disabled={loading}
-            >
-              {loading ? <CircularProgress size={24} /> : '調整尺寸'}
             </Button>
           </Paper>
         )}

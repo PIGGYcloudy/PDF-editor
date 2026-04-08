@@ -67,26 +67,6 @@ class ReorderPagesResponse(BaseModel):
     pageCount: int
 
 
-# 尺寸調整請求
-class TargetSize(BaseModel):
-    preset: Optional[str] = Field(None, description="預設尺寸：A3, A4, A5, B2, B3, B4, B5, Letter, Legal")
-    customWidth: Optional[int] = Field(None, description="自訂寬度 (pt)")
-    customHeight: Optional[int] = Field(None, description="自訂高度 (pt)")
-
-
-class ResizeRequest(BaseModel):
-    pdfId: str
-    targetSize: TargetSize
-    pages: str = Field("all", description="all 或 selected")
-    selectedPageNumbers: Optional[List[int]] = Field(None, description="當 pages 為 selected 時必填")
-    maintainAspectRatio: bool = Field(True, description="是否保持長寬比")
-
-
-class ResizeResponse(BaseModel):
-    newPdfId: str
-    newSize: dict
-
-
 # 壓縮請求
 class CompressRequest(BaseModel):
     pdfId: str

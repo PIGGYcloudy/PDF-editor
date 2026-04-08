@@ -81,28 +81,30 @@ class CompressService:
 
         # 將壓縮後的圖片轉換回 PDF
         if compressed_images:
-            # 第一張圖片保存為 PDF
+            # 使用 PIL 直接保存所有圖片為 PDF
             temp_path = pdf_path.parent / "temp_compressed.pdf"
             compressed_images[0].save(
                 str(temp_path),
                 "PDF",
                 resolution=100.0,
-                quality=quality
+                quality=quality,
+                save_all=True,
+                append_images=compressed_images[1:]
             )
 
-            # 添加其餘頁面
+            # 讀取並重新保存以確保格式正確
             pdf_writer = PdfWriter()
+            temp_reader = PdfReader(str(temp_path))
+            
+            for page in temp_reader.pages:
+                pdf_writer.add_page(page)
+            
+            temp_path.unlink()
 
-            if temp_path.exists():
-                temp_reader = PdfReader(str(temp_path))
-                for page in temp_reader.pages:
-                    pdf_writer.add_page(page)
-                temp_path.unlink()
-
-                # 保存最終的 PDF
-                new_path = save_output_pdf(pdf_writer, "compressed")
-                compressed_size = new_path.stat().st_size
-                return new_path, original_size, compressed_size
+            # 保存最終的 PDF
+            new_path = save_output_pdf(pdf_writer, "compressed")
+            compressed_size = new_path.stat().st_size
+            return new_path, original_size, compressed_size
 
         # 如果沒有圖片，返回原始檔案的副本
         writer = PdfWriter()

@@ -49,7 +49,7 @@ async def convert_to_image(request: ConvertToImageRequest):
         # 返回下載 URL
         filename = zip_path.name
         return ConvertToImageResponse(
-            zipUrl=f"/api/download/{filename}",
+            zipUrl=f"/api/convert/download/{filename}",
             imageCount=image_count,
             format=request.format.lower()
         )

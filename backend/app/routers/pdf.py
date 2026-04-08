@@ -15,8 +15,6 @@ from app.models.schemas import (
     DeletePagesResponse,
     ReorderPagesRequest,
     ReorderPagesResponse,
-    ResizeRequest,
-    ResizeResponse,
     CompressRequest,
     CompressResponse,
     WatermarkTextRequest,
@@ -31,7 +29,6 @@ from app.utils.pdf_utils import (
     get_pdf_page_info,
     generate_thumbnail,
     save_uploaded_file,
-    get_preset_size,
 )
 from app.services.pdf_service import PDFService
 from app.services.compress_service import CompressService
@@ -169,46 +166,6 @@ async def reorder_pages(request: ReorderPagesRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-
-@router.post("/resize", response_model=ResizeResponse)
-async def resize_pages(request: ResizeRequest):
-    """調整頁面尺寸"""
-    if request.pdfId not in pdf_files:
-        raise HTTPException(status_code=404, detail="PDF 檔案不存在")
-
-    # 獲取目標尺寸
-    if request.targetSize.preset:
-        target_width, target_height = get_preset_size(request.targetSize.preset)
-    elif request.targetSize.customWidth and request.targetSize.customHeight:
-        target_width = request.targetSize.customWidth
-        target_height = request.targetSize.customHeight
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail="請指定預設尺寸或自訂尺寸"
-        )
-
-    try:
-        new_path = PDFService.resize_pages(
-            pdf_files[request.pdfId],
-            target_width,
-            target_height,
-            request.selectedPageNumbers if request.pages == "selected" else None,
-            request.maintainAspectRatio
-        )
-
-        # 獲取新檔案 ID
-        new_id = new_path.stem.split("_")[1]
-
-        # 儲存映射
-        pdf_files[new_id] = new_path
-
-        return ResizeResponse(
-            newPdfId=new_id,
-            newSize={"width": target_width, "height": target_height}
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/compress", response_model=CompressResponse)
