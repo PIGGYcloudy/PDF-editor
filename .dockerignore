@@ -1,0 +1,15 @@
+.git
+.github
+.claude
+.agents
+.codex
+.venv
+**/__pycache__
+**/.pytest_cache
+backend/uploads/*
+backend/outputs/*
+!backend/uploads/.gitkeep
+!backend/outputs/.gitkeep
+frontend/node_modules
+frontend/dist
+*.log

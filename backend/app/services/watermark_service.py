@@ -1,17 +1,58 @@
 """
 PDF 浮水印服務
 """
+import math
+from io import BytesIO
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
-from pypdf import PdfReader, PdfWriter
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
+from pypdf import PdfReader
+from pypdf.generic import ArrayObject, DictionaryObject, NameObject
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
 
-from app.utils.pdf_utils import save_output_pdf, hex_to_rgb, validate_page_numbers
+from app.utils.pdf_utils import (
+    clone_pdf_writer,
+    hex_to_rgb,
+    save_output_pdf,
+    validate_page_numbers,
+)
 
 
 class WatermarkService:
-    """PDF 浮水印服務"""
+    """以 PDF 疊加層加入浮水印，保留原文件結構與頁面尺寸。"""
+
+    POSITIONS = {
+        "center",
+        "top-left",
+        "top-right",
+        "bottom-left",
+        "bottom-right",
+    }
+    FONT_ALIASES = {
+        "arial": "Helvetica",
+        "arial bold": "Helvetica-Bold",
+        "helvetica": "Helvetica",
+        "times": "Times-Roman",
+        "times new roman": "Times-Roman",
+        "courier": "Courier",
+    }
+    CJK_FONT_NAME = "DroidSansFallback"
+    CJK_FONT_PATH = Path(
+        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf"
+    )
+    RESOURCE_DICTIONARY_KEYS = {
+        "/ExtGState",
+        "/Font",
+        "/XObject",
+        "/ColorSpace",
+        "/Pattern",
+        "/Shading",
+        "/Properties",
+    }
 
     @staticmethod
     def add_text_watermark(
@@ -23,189 +64,51 @@ class WatermarkService:
         color: str = "#FF0000",
         opacity: float = 0.3,
         rotation: int = 45,
-        page_numbers: Optional[List[int]] = None
+        page_numbers: Optional[List[int]] = None,
     ) -> Path:
-        """
-        添加文字浮水印到 PDF
+        """將文字浮水印疊加到指定頁面。"""
+        if not text:
+            raise ValueError("浮水印文字不能為空")
+        WatermarkService._validate_common_options(position, opacity)
+        if font_size < 1:
+            raise ValueError("字體大小必須大於 0")
 
-        Args:
-            pdf_path: PDF 檔案路徑
-            text: 浮水印文字
-            position: 位置 (center, top-left, top-right, bottom-left, bottom-right)
-            font_size: 字體大小 (pt)
-            font_family: 字體家族
-            color: 顏色 (hex)
-            opacity: 透明度 (0-1)
-            rotation: 旋轉角度 (度)
-            page_numbers: 要添加浮水印的頁面，None 表示所有頁面
-
-        Returns:
-            新 PDF 檔案路徑
-        """
-        from pdf2image import convert_from_path
-
-        reader = PdfReader(str(pdf_path))
-        total_pages = len(reader.pages)
-
-        # 如果沒有指定頁面，則添加至所有頁面
-        if page_numbers is None:
-            page_numbers = list(range(1, total_pages + 1))
-        else:
-            validate_page_numbers(page_numbers, total_pages)
-
-        # 將 PDF 轉換為圖片
-        images = convert_from_path(str(pdf_path), dpi=150)
-
-        # 處理每頁
-        processed_images = []
-        for idx, img in enumerate(images):
-            page_num = idx + 1
-
-            if page_num in page_numbers:
-                # 添加浮水印
-                img = WatermarkService._add_text_watermark_to_image(
-                    img, text, position, font_size, color, opacity, rotation
-                )
-
-            processed_images.append(img)
-
-        # 將圖片轉換回 PDF
-        if processed_images:
-            # 使用 PIL 直接保存所有圖片為 PDF
-            output_path = pdf_path.parent / "temp_watermark.pdf"
-            processed_images[0].save(
-                str(output_path),
-                "PDF",
-                resolution=100.0,
-                save_all=True,
-                append_images=processed_images[1:]
-            )
-
-            # 讀取並重新保存以確保格式正確
-            writer = PdfWriter()
-            temp_reader = PdfReader(str(output_path))
-
-            for page in temp_reader.pages:
-                writer.add_page(page)
-
-            output_path.unlink()
-
-            return save_output_pdf(writer, "watermarked")
-
-        return save_output_pdf(PdfWriter(), "watermarked")
-
-    @staticmethod
-    def _add_text_watermark_to_image(
-        image: Image.Image,
-        text: str,
-        position: str,
-        font_size: int,
-        color: str,
-        opacity: float,
-        rotation: int
-    ) -> Image.Image:
-        """
-        在圖片上添加文字浮水印
-
-        Args:
-            image: PIL Image 對象
-            text: 浮水印文字
-            position: 位置
-            font_size: 字體大小（基準值，會根據頁面尺寸自動調整）
-            color: 顏色 (hex)
-            opacity: 透明度
-            rotation: 旋轉角度
-
-        Returns:
-            帶有浮水印的圖片
-        """
-        # 轉換為 RGBA 模式以支援透明度
-        if image.mode != "RGBA":
-            image = image.convert("RGBA")
-
-        # 根據頁面尺寸自動調整字體大小
-        img_width, img_height = image.size
-        # 以頁面寬度的 15-20% 作為字體大小，確保可讀性
-        auto_font_size = int(min(img_width, img_height) * 0.15)
-        # 確保字體大小不會太小
-        auto_font_size = max(auto_font_size, 24)
-
-        # 嘗試載入粗體字體
-        font_paths = [
-            "arialbd.ttf",      # Arial Bold
-            "arialb.ttf",       # Arial Bold (alternative)
-            "arial.ttf",        # Arial (fallback)
-            "C:/Windows/Fonts/arialbd.ttf",
-            "C:/Windows/Fonts/arialb.ttf",
-            "C:/Windows/Fonts/arial.ttf",
-        ]
-        
-        font = None
-        for font_path in font_paths:
-            try:
-                font = ImageFont.truetype(font_path, auto_font_size)
-                break
-            except (OSError, FileNotFoundError):
-                continue
-        
-        if font is None:
-            font = ImageFont.load_default()
-
-        # 創建僅包含文字的圖層
-        draw_temp = ImageDraw.Draw(Image.new('RGBA', (1, 1)))
-        bbox = draw_temp.textbbox((0, 0), text, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-
-        text_layer = Image.new('RGBA', (text_width, text_height), (0, 0, 0, 0))
-        text_draw = ImageDraw.Draw(text_layer)
-
-        # 設置顏色（包含透明度）
+        writer = clone_pdf_writer(pdf_path, minimum_version=b"%PDF-1.4")
+        selected_pages = WatermarkService._selected_pages(
+            page_numbers,
+            len(writer.pages),
+        )
+        font_name = WatermarkService._resolve_font(font_family, text)
         rgb_color = hex_to_rgb(color)
-        alpha = int(255 * opacity)
-        text_color = (*rgb_color, alpha)
-        text_draw.text((0, 0), text, font=font, fill=text_color)
+        overlay_cache = {}
 
-        # 旋轉文字圖層
-        if rotation != 0:
-            text_layer = text_layer.rotate(
-                rotation,
-                expand=True,
-                resample=Image.BICUBIC,
-                fillcolor=(0, 0, 0, 0)
+        for page_index, page in enumerate(writer.pages, start=1):
+            if page_index not in selected_pages:
+                continue
+
+            page_width, page_height = WatermarkService._visual_page_size(page)
+            user_unit = float(page.user_unit)
+            cache_key = (page_width, page_height, user_unit)
+            if cache_key not in overlay_cache:
+                overlay = WatermarkService._create_text_overlay(
+                    page_width,
+                    page_height,
+                    text,
+                    position,
+                    font_size / user_unit,
+                    font_name,
+                    rgb_color,
+                    opacity,
+                    rotation,
+                    margin=10 / user_unit,
+                )
+                overlay_cache[cache_key] = PdfReader(overlay).pages[0]
+            WatermarkService._merge_overlay(
+                page,
+                overlay_cache[cache_key],
             )
 
-        # 計算位置
-        text_layer_width, text_layer_height = text_layer.size
-        img_width, img_height = image.size
-
-        if position == "center":
-            x = (img_width - text_layer_width) // 2
-            y = (img_height - text_layer_height) // 2
-        elif position == "top-left":
-            x = 10
-            y = 10
-        elif position == "top-right":
-            x = img_width - text_layer_width - 10
-            y = 10
-        elif position == "bottom-left":
-            x = 10
-            y = img_height - text_layer_height - 10
-        elif position == "bottom-right":
-            x = img_width - text_layer_width - 10
-            y = img_height - text_layer_height - 10
-        else:
-            x = (img_width - text_layer_width) // 2
-            y = (img_height - text_layer_height) // 2
-
-        # 創建透明圖層並合成
-        watermark_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
-        watermark_layer.paste(text_layer, (x, y), text_layer)
-
-        # 合併圖層
-        image = Image.alpha_composite(image, watermark_layer)
-
-        return image
+        return save_output_pdf(writer, "watermarked")
 
     @staticmethod
     def add_image_watermark(
@@ -214,145 +117,298 @@ class WatermarkService:
         position: str = "center",
         opacity: float = 0.5,
         image_width: Optional[int] = None,
-        page_numbers: Optional[List[int]] = None
+        page_numbers: Optional[List[int]] = None,
     ) -> Path:
-        """
-        添加圖片浮水印到 PDF
+        """將圖片浮水印疊加到指定頁面。"""
+        WatermarkService._validate_common_options(position, opacity)
+        if image_width is not None and image_width < 1:
+            raise ValueError("浮水印圖片寬度必須大於 0")
 
-        Args:
-            pdf_path: PDF 檔案路徑
-            watermark_image_path: 浮水印圖片路徑
-            position: 位置 (center, top-left, top-right, bottom-left, bottom-right)
-            opacity: 透明度 (0-1)
-            image_width: 浮水印圖片寬度 (px)，None 表示使用原始寬度
-            page_numbers: 要添加浮水印的頁面，None 表示所有頁面
+        with Image.open(watermark_image_path) as source_image:
+            watermark_image = source_image.convert("RGBA")
 
-        Returns:
-            新 PDF 檔案路徑
-        """
-        from pdf2image import convert_from_path
+        writer = clone_pdf_writer(pdf_path, minimum_version=b"%PDF-1.4")
+        selected_pages = WatermarkService._selected_pages(
+            page_numbers,
+            len(writer.pages),
+        )
+        overlay_cache = {}
 
-        reader = PdfReader(str(pdf_path))
-        total_pages = len(reader.pages)
+        for page_index, page in enumerate(writer.pages, start=1):
+            if page_index not in selected_pages:
+                continue
 
-        # 如果沒有指定頁面，則添加至所有頁面
-        if page_numbers is None:
-            page_numbers = list(range(1, total_pages + 1))
-        else:
-            validate_page_numbers(page_numbers, total_pages)
-
-        # 載入浮水印圖片
-        watermark_img = Image.open(watermark_image_path)
-        if watermark_img.mode != "RGBA":
-            watermark_img = watermark_img.convert("RGBA")
-
-        # 調整浮水印大小
-        if image_width is not None:
-            ratio = image_width / watermark_img.width
-            new_height = int(watermark_img.height * ratio)
-            watermark_img = watermark_img.resize((image_width, new_height), Image.Resampling.LANCZOS)
-
-        # 將 PDF 轉換為圖片
-        images = convert_from_path(str(pdf_path), dpi=150)
-
-        # 處理每頁
-        processed_images = []
-        for idx, img in enumerate(images):
-            page_num = idx + 1
-
-            if page_num in page_numbers:
-                # 添加浮水印
-                img = WatermarkService._add_image_watermark_to_image(
-                    img, watermark_img, position, opacity
+            page_width, page_height = WatermarkService._visual_page_size(page)
+            user_unit = float(page.user_unit)
+            cache_key = (page_width, page_height, user_unit)
+            if cache_key not in overlay_cache:
+                overlay = WatermarkService._create_image_overlay(
+                    page_width,
+                    page_height,
+                    watermark_image,
+                    position,
+                    opacity,
+                    image_width,
+                    user_unit,
                 )
-
-            processed_images.append(img)
-
-        # 將圖片轉換回 PDF
-        if processed_images:
-            # 使用 PIL 直接保存所有圖片為 PDF
-            output_path = pdf_path.parent / "temp_watermark_img.pdf"
-            processed_images[0].save(
-                str(output_path),
-                "PDF",
-                resolution=100.0,
-                save_all=True,
-                append_images=processed_images[1:]
+                overlay_cache[cache_key] = PdfReader(overlay).pages[0]
+            WatermarkService._merge_overlay(
+                page,
+                overlay_cache[cache_key],
             )
 
-            # 讀取並重新保存以確保格式正確
-            writer = PdfWriter()
-            temp_reader = PdfReader(str(output_path))
-
-            for page in temp_reader.pages:
-                writer.add_page(page)
-
-            output_path.unlink()
-
-            return save_output_pdf(writer, "watermarked")
-
-        return save_output_pdf(PdfWriter(), "watermarked")
+        return save_output_pdf(writer, "watermarked")
 
     @staticmethod
-    def _add_image_watermark_to_image(
-        image: Image.Image,
-        watermark: Image.Image,
+    def _selected_pages(
+        page_numbers: Optional[List[int]],
+        total_pages: int,
+    ) -> set[int]:
+        if page_numbers is None:
+            return set(range(1, total_pages + 1))
+
+        validate_page_numbers(page_numbers, total_pages)
+        if not page_numbers:
+            raise ValueError("至少需要選擇一個頁面")
+        return set(page_numbers)
+
+    @staticmethod
+    def _validate_common_options(position: str, opacity: float) -> None:
+        if position not in WatermarkService.POSITIONS:
+            raise ValueError(f"無效的浮水印位置：{position}")
+        if not 0 <= opacity <= 1:
+            raise ValueError("透明度必須介於 0 和 1")
+
+    @staticmethod
+    def _resolve_font(font_family: str, text: str) -> str:
+        if WatermarkService._contains_cjk(text):
+            try:
+                pdfmetrics.getFont(WatermarkService.CJK_FONT_NAME)
+            except KeyError:
+                if not WatermarkService.CJK_FONT_PATH.exists():
+                    raise ValueError("伺服器缺少中文字型，無法建立中文浮水印")
+                pdfmetrics.registerFont(
+                    TTFont(
+                        WatermarkService.CJK_FONT_NAME,
+                        WatermarkService.CJK_FONT_PATH,
+                    )
+                )
+            return WatermarkService.CJK_FONT_NAME
+
+        try:
+            text.encode("cp1252")
+        except UnicodeEncodeError:
+            raise ValueError("目前字型不支援輸入的字元")
+
+        requested_font = font_family.strip()
+        alias = WatermarkService.FONT_ALIASES.get(
+            requested_font.lower(),
+            requested_font,
+        )
+        try:
+            pdfmetrics.getFont(alias)
+            return alias
+        except KeyError:
+            raise ValueError(f"不支援的字體：{font_family}")
+
+    @staticmethod
+    def _contains_cjk(text: str) -> bool:
+        return any(
+            "\u3400" <= character <= "\u4dbf"
+            or "\u4e00" <= character <= "\u9fff"
+            or "\uf900" <= character <= "\ufaff"
+            for character in text
+        )
+
+    @staticmethod
+    def _merge_overlay(page, overlay_page) -> None:
+        WatermarkService._detach_page_resources(page)
+        cropbox = page.cropbox
+        left = float(cropbox.left)
+        bottom = float(cropbox.bottom)
+        width = float(cropbox.width)
+        height = float(cropbox.height)
+        rotation = page.rotation % 360
+        transformation = {
+            0: (1, 0, 0, 1, left, bottom),
+            90: (0, 1, -1, 0, left + width, bottom),
+            180: (-1, 0, 0, -1, left + width, bottom + height),
+            270: (0, -1, 1, 0, left, bottom + height),
+        }[rotation]
+        page.merge_transformed_page(
+            overlay_page,
+            transformation,
+            over=True,
+            expand=False,
+        )
+
+    @staticmethod
+    def _detach_page_resources(page) -> None:
+        """
+        分離頁面資源字典，避免修改到其他共用同一 `/Resources` 的頁面。
+
+        子字典只做淺複製；實際字型與圖片的間接物件仍然共用，因此既不會
+        污染未選頁面，也不會重複嵌入大型資源。
+        """
+        resources = page.get("/Resources")
+        if resources is None:
+            page[NameObject("/Resources")] = DictionaryObject()
+            return
+
+        detached_resources = DictionaryObject()
+        for key, value in resources.get_object().items():
+            if str(key) == "/ProcSet":
+                resource_array = value.get_object()
+                if isinstance(resource_array, ArrayObject):
+                    detached_resources[key] = ArrayObject(resource_array)
+                    continue
+            if str(key) in WatermarkService.RESOURCE_DICTIONARY_KEYS:
+                resource_dictionary = value.get_object()
+                if isinstance(resource_dictionary, DictionaryObject):
+                    detached_resources[key] = DictionaryObject(
+                        resource_dictionary
+                    )
+                    continue
+            detached_resources[key] = value
+
+        page[NameObject("/Resources")] = detached_resources
+
+    @staticmethod
+    def _visual_page_size(page) -> Tuple[float, float]:
+        width = float(page.cropbox.width)
+        height = float(page.cropbox.height)
+        if page.rotation % 360 in (90, 270):
+            return height, width
+        return width, height
+
+    @staticmethod
+    def _create_text_overlay(
+        page_width: float,
+        page_height: float,
+        text: str,
         position: str,
-        opacity: float
-    ) -> Image.Image:
-        """
-        在圖片上添加圖片浮水印
+        font_size: float,
+        font_name: str,
+        rgb_color: Tuple[int, int, int],
+        opacity: float,
+        rotation: int,
+        margin: float,
+    ) -> BytesIO:
+        buffer = BytesIO()
+        overlay = canvas.Canvas(
+            buffer,
+            pagesize=(page_width, page_height),
+            pageCompression=1,
+        )
+        overlay.saveState()
+        overlay.setFillAlpha(opacity)
+        overlay.setFillColorRGB(*(channel / 255 for channel in rgb_color))
+        overlay.setFont(font_name, font_size)
 
-        Args:
-            image: PIL Image 對象
-            watermark: 浮水印圖片
-            position: 位置
-            opacity: 透明度
+        text_width = pdfmetrics.stringWidth(text, font_name, font_size)
+        ascent, descent = pdfmetrics.getAscentDescent(font_name, font_size)
+        text_height = ascent - descent
+        radians = math.radians(rotation)
+        rotated_width = (
+            abs(text_width * math.cos(radians))
+            + abs(text_height * math.sin(radians))
+        )
+        rotated_height = (
+            abs(text_width * math.sin(radians))
+            + abs(text_height * math.cos(radians))
+        )
+        center_x, center_y = WatermarkService._position_center(
+            page_width,
+            page_height,
+            rotated_width,
+            rotated_height,
+            position,
+            margin,
+        )
 
-        Returns:
-            帶有浮水印的圖片
-        """
-        # 轉換為 RGBA 模式
-        if image.mode != "RGBA":
-            image = image.convert("RGBA")
+        overlay.translate(center_x, center_y)
+        overlay.rotate(rotation)
+        overlay.drawCentredString(0, -(ascent + descent) / 2, text)
+        overlay.restoreState()
+        overlay.showPage()
+        overlay.save()
+        buffer.seek(0)
+        return buffer
 
-        # 調整透明度
-        if opacity < 1.0:
-            # 創建透明度圖層
-            alpha = watermark.split()[3] if watermark.mode == "RGBA" else None
-            alpha = alpha.point(lambda x: int(x * opacity)) if alpha else None
-            watermark = watermark.copy()
-            if alpha:
-                watermark.putalpha(alpha)
+    @staticmethod
+    def _create_image_overlay(
+        page_width: float,
+        page_height: float,
+        image: Image.Image,
+        position: str,
+        opacity: float,
+        image_width: Optional[int],
+        user_unit: float,
+    ) -> BytesIO:
+        # imageWidth 的公開 API 單位為 pt；未指定時則以原始像素在 150 DPI
+        # 下的實體寬度作為合理預設。
+        width_points = (
+            float(image_width)
+            if image_width is not None
+            else image.width * 72 / 150
+        )
+        width = width_points / user_unit
+        height = width * image.height / image.width
 
-        # 計算位置
-        img_width, img_height = image.size
-        wm_width, wm_height = watermark.size
+        margin = 10 / user_unit
+        max_width = max(1.0, page_width - margin * 2)
+        max_height = max(1.0, page_height - margin * 2)
+        fit_ratio = min(1.0, max_width / width, max_height / height)
+        width *= fit_ratio
+        height *= fit_ratio
+        center_x, center_y = WatermarkService._position_center(
+            page_width,
+            page_height,
+            width,
+            height,
+            position,
+            margin,
+        )
 
+        buffer = BytesIO()
+        overlay = canvas.Canvas(
+            buffer,
+            pagesize=(page_width, page_height),
+            pageCompression=1,
+        )
+        overlay.saveState()
+        overlay.setFillAlpha(opacity)
+        overlay.drawImage(
+            ImageReader(image),
+            center_x - width / 2,
+            center_y - height / 2,
+            width=width,
+            height=height,
+            mask="auto",
+        )
+        overlay.restoreState()
+        overlay.showPage()
+        overlay.save()
+        buffer.seek(0)
+        return buffer
+
+    @staticmethod
+    def _position_center(
+        page_width: float,
+        page_height: float,
+        object_width: float,
+        object_height: float,
+        position: str,
+        margin: float,
+    ) -> Tuple[float, float]:
         if position == "center":
-            x = (img_width - wm_width) // 2
-            y = (img_height - wm_height) // 2
-        elif position == "top-left":
-            x = 10
-            y = 10
-        elif position == "top-right":
-            x = img_width - wm_width - 10
-            y = 10
-        elif position == "bottom-left":
-            x = 10
-            y = img_height - wm_height - 10
-        elif position == "bottom-right":
-            x = img_width - wm_width - 10
-            y = img_height - wm_height - 10
-        else:
-            x = (img_width - wm_width) // 2
-            y = (img_height - wm_height) // 2
-
-        # 創建透明圖層
-        watermark_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
-        watermark_layer.paste(watermark, (x, y), watermark)
-
-        # 合併圖層
-        image = Image.alpha_composite(image, watermark_layer)
-
-        return image
+            return page_width / 2, page_height / 2
+        if position == "top-left":
+            return margin + object_width / 2, page_height - margin - object_height / 2
+        if position == "top-right":
+            return page_width - margin - object_width / 2, page_height - margin - object_height / 2
+        if position == "bottom-left":
+            return margin + object_width / 2, margin + object_height / 2
+        if position == "bottom-right":
+            return page_width - margin - object_width / 2, margin + object_height / 2
+        raise ValueError(f"無效的浮水印位置：{position}")

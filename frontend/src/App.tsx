@@ -1,10 +1,110 @@
 import { useState, useCallback } from 'react';
+import axios from 'axios';
 import { Box, Container, Typography, Paper, Button, CircularProgress, Alert, Grid, IconButton, Stack } from '@mui/material';
 import { UploadFile as UploadFileIcon, Delete as DeleteIcon, Compress as CompressIcon, WaterDamage as WatermarkIcon, Photo as PhotoIcon, ContentPaste as MergeIcon, Download as DownloadIcon, DragIndicator } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import { PDFFile, Page } from './types';
-import { uploadPDF, getPages, deletePages, compressPDF, addTextWatermark, convertToImage, mergePDFs, downloadPDF, reorderPages, deletePDF as deletePDFApi } from './services/api';
+import { uploadPDF, getPages, deletePages, compressPDF, addTextWatermark, convertToImage, mergePDFs, downloadFile, downloadPDF, reorderPages, deletePDF as deletePDFApi } from './services/api';
+import SaveFileDialog from './components/SaveFileDialog';
+import {
+  canUseNativeSaveFilePicker,
+  chooseNativeSaveFile,
+  getDestinationFilename,
+  normalizeDownloadFilename,
+  saveBlobToDestination,
+} from './utils/fileSave';
+import type {
+  FileDestination,
+  NativeSaveFileOptions,
+} from './utils/fileSave';
 import './App.css';
+
+interface ApiErrorData {
+  detail?: string | Array<{ msg?: string }>;
+}
+
+type ConvertFormat = 'jpg' | 'png';
+type ConvertDpi = 72 | 150 | 300;
+
+type SaveRequest =
+  | {
+      kind: 'pdf';
+      pdfId: string;
+      suggestedName: string;
+    }
+  | {
+      kind: 'images';
+      pdfId: string;
+      suggestedName: string;
+      format: ConvertFormat;
+      dpi: ConvertDpi;
+      selectedPageNumbers?: number[];
+    };
+
+interface PreparedSave {
+  request: SaveRequest;
+  blob: Blob;
+  imageCount?: number;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (axios.isAxiosError<ApiErrorData>(error)) {
+    const detail = error.response?.data?.detail;
+    if (typeof detail === 'string') {
+      return detail;
+    }
+    if (Array.isArray(detail)) {
+      const messages = detail
+        .map((item) => item.msg)
+        .filter((message): message is string => Boolean(message));
+      if (messages.length > 0) {
+        return messages.join('；');
+      }
+    }
+  }
+  return fallback;
+}
+
+function getDownloadFilename(downloadUrl: string): string {
+  const pathname = new URL(downloadUrl, window.location.origin).pathname;
+  const filename = pathname.split('/').pop();
+  if (!filename) {
+    throw new Error('下載網址缺少檔案名稱');
+  }
+  return decodeURIComponent(filename);
+}
+
+function getSaveFileOptions(request: SaveRequest): NativeSaveFileOptions {
+  if (request.kind === 'pdf') {
+    return {
+      suggestedName: request.suggestedName,
+      description: 'PDF 文件',
+      mimeType: 'application/pdf',
+      extension: '.pdf',
+    };
+  }
+
+  return {
+    suggestedName: request.suggestedName,
+    description: '圖片 ZIP 壓縮檔',
+    mimeType: 'application/zip',
+    extension: '.zip',
+  };
+}
+
+function getSaveExtension(request: SaveRequest): string {
+  return request.kind === 'pdf' ? '.pdf' : '.zip';
+}
+
+function updateSuggestedName(
+  request: SaveRequest,
+  suggestedName: string,
+): SaveRequest {
+  if (request.kind === 'pdf') {
+    return { ...request, suggestedName };
+  }
+  return { ...request, suggestedName };
+}
 
 function App() {
   const [pdfFiles, setPdfFiles] = useState<PDFFile[]>([]);
@@ -18,26 +118,98 @@ function App() {
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [draggedPage, setDraggedPage] = useState<number | null>(null);
   const [pagesOrder, setPagesOrder] = useState<number[]>([]);
+  const [pendingSave, setPendingSave] = useState<PreparedSave | null>(null);
+
+  const loadPages = useCallback(async (pdfId: string) => {
+    const response = await getPages(pdfId);
+    setPages(response.pages);
+    setPagesOrder(response.pages.map((page) => page.pageNumber));
+    return response;
+  }, []);
+
+  const loadEditedPreview = useCallback(async (
+    pdfId: string,
+    failureMessage: string,
+  ): Promise<boolean> => {
+    try {
+      await loadPages(pdfId);
+      return true;
+    } catch (err) {
+      setPages([]);
+      setPagesOrder([]);
+      setError(getErrorMessage(err, failureMessage));
+      return false;
+    }
+  }, [loadPages]);
+
+  const replacePdfVersion = (
+    previousPdfId: string,
+    newPdfId: string,
+    updates: Partial<Pick<PDFFile, 'size' | 'pageCount'>>,
+  ) => {
+    setPdfFiles((previousFiles) => {
+      const existingFile = previousFiles.find((file) => file.id === previousPdfId);
+      if (!existingFile) {
+        return [
+          ...previousFiles,
+          {
+            id: newPdfId,
+            name: `edited_${newPdfId.slice(0, 8)}.pdf`,
+            size: updates.size ?? 0,
+            pageCount: updates.pageCount ?? 0,
+            uploadedAt: new Date().toISOString(),
+          },
+        ];
+      }
+
+      return previousFiles.map((file) => (
+        file.id === previousPdfId
+          ? { ...file, ...updates, id: newPdfId }
+          : file
+      ));
+    });
+
+    setSelectedForMerge((previousSelection) => {
+      if (!previousSelection.has(previousPdfId)) {
+        return previousSelection;
+      }
+      return new Set(
+        Array.from(
+          previousSelection,
+          (pdfId) => pdfId === previousPdfId ? newPdfId : pdfId,
+        ),
+      );
+    });
+  };
 
   // 檔案上傳
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     setLoading(true);
     setError(null);
+    setSuccess(null);
     try {
       const response = await uploadPDF(acceptedFiles);
       setPdfFiles((prev) => [...prev, ...response.files]);
       if (response.files.length > 0) {
         const firstFile = response.files[0];
         setCurrentPdfId(firstFile.id);
-        await loadPages(firstFile.id);
+        setSelectedPages(new Set());
+        setActiveTab(null);
+        setPages([]);
+        setPagesOrder([]);
+        const previewLoaded = await loadEditedPreview(
+          firstFile.id,
+          '檔案已上傳，但頁面預覽載入失敗。',
+        );
+        if (!previewLoaded) return;
       }
       setSuccess('檔案上傳成功！');
     } catch (err) {
-      setError('檔案上傳失敗，請稍後再試。');
+      setError(getErrorMessage(err, '檔案上傳失敗，請稍後再試。'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadEditedPreview]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -45,22 +217,36 @@ function App() {
       'application/pdf': ['.pdf'],
     },
     multiple: true,
+    disabled: loading,
   });
 
   // 刪除頁面
   const handleDeletePages = async () => {
     if (!currentPdfId || selectedPages.size === 0) return;
-    
+
+    const previousPdfId = currentPdfId;
+    const deletedPageCount = selectedPages.size;
     setLoading(true);
     setError(null);
+    setSuccess(null);
     try {
-      const response = await deletePages(currentPdfId, Array.from(selectedPages));
+      const response = await deletePages(previousPdfId, Array.from(selectedPages));
+      replacePdfVersion(previousPdfId, response.newPdfId, {
+        pageCount: response.remainingPages,
+      });
       setCurrentPdfId(response.newPdfId);
-      await loadPages(response.newPdfId);
       setSelectedPages(new Set());
-      setSuccess(`已刪除 ${selectedPages.size} 個頁面，剩餘 ${response.remainingPages} 頁。`);
+      setActiveTab(null);
+      setPages([]);
+      setPagesOrder([]);
+      const previewLoaded = await loadEditedPreview(
+        response.newPdfId,
+        `頁面已刪除，但新版本預覽載入失敗。`,
+      );
+      if (!previewLoaded) return;
+      setSuccess(`已刪除 ${deletedPageCount} 個頁面，剩餘 ${response.remainingPages} 頁。`);
     } catch (err) {
-      setError('刪除頁面失敗。');
+      setError(getErrorMessage(err, '刪除頁面失敗。'));
     } finally {
       setLoading(false);
     }
@@ -70,19 +256,31 @@ function App() {
   const [compressQuality, setCompressQuality] = useState(75);
   const handleCompress = async () => {
     if (!currentPdfId) return;
-    
+
+    const previousPdfId = currentPdfId;
     setLoading(true);
     setError(null);
+    setSuccess(null);
     try {
-      const response = await compressPDF(currentPdfId, compressQuality);
+      const response = await compressPDF(previousPdfId, compressQuality);
+      replacePdfVersion(previousPdfId, response.newPdfId, {
+        pageCount: pages.length,
+        size: response.compressedSize,
+      });
       setCurrentPdfId(response.newPdfId);
-      await loadPages(response.newPdfId);
+      setPages([]);
+      setPagesOrder([]);
+      const previewLoaded = await loadEditedPreview(
+        response.newPdfId,
+        'PDF 已壓縮，但新版本預覽載入失敗。',
+      );
+      if (!previewLoaded) return;
       const originalMB = (response.originalSize / 1024 / 1024).toFixed(2);
       const compressedMB = (response.compressedSize / 1024 / 1024).toFixed(2);
       setSuccess(`壓縮成功！從 ${originalMB}MB 壓縮到 ${compressedMB}MB (${response.compressionRatio}% 壓縮比)`);
       setActiveTab(null);
     } catch (err) {
-      setError('壓縮失敗。');
+      setError(getErrorMessage(err, '壓縮失敗。'));
     } finally {
       setLoading(false);
     }
@@ -95,12 +293,14 @@ function App() {
   const [watermarkRotation, setWatermarkRotation] = useState(45);
   const handleAddWatermark = async () => {
     if (!currentPdfId) return;
-    
+
+    const previousPdfId = currentPdfId;
     setLoading(true);
     setError(null);
+    setSuccess(null);
     try {
       const response = await addTextWatermark(
-        currentPdfId,
+        previousPdfId,
         {
           text: watermarkText,
           position: watermarkPosition,
@@ -113,63 +313,144 @@ function App() {
         selectedPages.size > 0 ? 'selected' : 'all',
         selectedPages.size > 0 ? Array.from(selectedPages) : undefined
       );
+      replacePdfVersion(previousPdfId, response.newPdfId, {
+        pageCount: pages.length,
+      });
       setCurrentPdfId(response.newPdfId);
-      await loadPages(response.newPdfId);
+      setPages([]);
+      setPagesOrder([]);
+      const previewLoaded = await loadEditedPreview(
+        response.newPdfId,
+        '浮水印已添加，但新版本預覽載入失敗。',
+      );
+      if (!previewLoaded) return;
       setSuccess('浮水印添加成功！');
       setActiveTab(null);
     } catch (err) {
-      setError('添加浮水印失敗。');
+      setError(getErrorMessage(err, '添加浮水印失敗。'));
     } finally {
       setLoading(false);
     }
   };
 
   // 轉換為圖片
-  const [convertFormat, setConvertFormat] = useState<'jpg' | 'png'>('jpg');
-  const [convertDpi, setConvertDpi] = useState<72 | 150 | 300>(150);
-  const handleConvert = async () => {
-    if (!currentPdfId) return;
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await convertToImage(
-        currentPdfId,
-        convertFormat,
-        convertDpi,
-        selectedPages.size > 0 ? 'selected' : 'all',
-        selectedPages.size > 0 ? Array.from(selectedPages) : undefined
+  const [convertFormat, setConvertFormat] = useState<ConvertFormat>('jpg');
+  const [convertDpi, setConvertDpi] = useState<ConvertDpi>(150);
+
+  const getSuggestedPdfName = (pdfId: string): string => {
+    const sourceName = pdfFiles.find((file) => file.id === pdfId)?.name
+      ?? 'document.pdf';
+    return normalizeDownloadFilename(sourceName, '.pdf', 'document');
+  };
+
+  const prepareSave = async (request: SaveRequest): Promise<PreparedSave> => {
+    if (request.kind === 'pdf') {
+      return {
+        request,
+        blob: await downloadPDF(request.pdfId),
+      };
+    }
+
+    const response = await convertToImage(
+      request.pdfId,
+      request.format,
+      request.dpi,
+      request.selectedPageNumbers ? 'selected' : 'all',
+      request.selectedPageNumbers,
+    );
+    return {
+      request,
+      blob: await downloadFile(getDownloadFilename(response.zipUrl)),
+      imageCount: response.imageCount,
+    };
+  };
+
+  const setSaveSuccess = (
+    preparedSave: PreparedSave,
+    destination: FileDestination,
+  ) => {
+    const filename = getDestinationFilename(destination);
+    if (preparedSave.request.kind === 'pdf') {
+      setSuccess(
+        destination.kind === 'native'
+          ? `PDF 已儲存為「${filename}」。`
+          : `已開始下載 PDF「${filename}」。`,
       );
-      // 觸發下載
-      const link = document.createElement('a');
-      link.href = `${window.location.origin}${response.zipUrl}`;
-      link.download = `pdf_images_${response.format}.zip`;
-      link.click();
-      setSuccess(`轉換成功！已下載 ${response.imageCount} 張圖片。`);
-      setActiveTab(null);
+      return;
+    }
+
+    setSuccess(
+      destination.kind === 'native'
+        ? `轉換成功！已將 ${preparedSave.imageCount} 張圖片儲存為「${filename}」。`
+        : `轉換成功！已開始下載包含 ${preparedSave.imageCount} 張圖片的「${filename}」。`,
+    );
+    setActiveTab(null);
+  };
+
+  const getSaveFailureMessage = (request: SaveRequest): string => (
+    request.kind === 'pdf'
+      ? '下載 PDF 失敗。'
+      : '轉換或下載圖片失敗。'
+  );
+
+  const savePreparedFile = async (
+    preparedSave: PreparedSave,
+    destination: FileDestination,
+  ) => {
+    await saveBlobToDestination(preparedSave.blob, destination);
+    setSaveSuccess(preparedSave, destination);
+  };
+
+  const beginSave = async (request: SaveRequest) => {
+    setError(null);
+    setSuccess(null);
+    setLoading(true);
+
+    try {
+      setPendingSave(await prepareSave(request));
     } catch (err) {
-      setError('轉換失敗。');
+      setError(getErrorMessage(err, getSaveFailureMessage(request)));
     } finally {
       setLoading(false);
     }
   };
 
-  // 載入頁面時初始化頁面順序
-  const loadPages = async (pdfId: string) => {
-    try {
-      const response = await getPages(pdfId);
-      setPages(response.pages);
-      setPagesOrder(response.pages.map(p => p.pageNumber));
-    } catch (err) {
-      setError('載入頁面資訊失敗。');
-    }
+  const handleConvert = async () => {
+    if (!currentPdfId) return;
+
+    const pdfName = getSuggestedPdfName(currentPdfId);
+    const baseName = pdfName.slice(0, -'.pdf'.length);
+    await beginSave({
+      kind: 'images',
+      pdfId: currentPdfId,
+      suggestedName: normalizeDownloadFilename(
+        `${baseName}_images_${convertFormat}`,
+        '.zip',
+        `pdf_images_${convertFormat}`,
+      ),
+      format: convertFormat,
+      dpi: convertDpi,
+      selectedPageNumbers: selectedPages.size > 0
+        ? Array.from(selectedPages).sort((first, second) => first - second)
+        : undefined,
+    });
   };
 
   // 切換 PDF 檔案
   const handleSelectPdf = async (pdfId: string) => {
-    setCurrentPdfId(pdfId);
-    await loadPages(pdfId);
-    setSelectedPages(new Set());
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await loadPages(pdfId);
+      setCurrentPdfId(pdfId);
+      setSelectedPages(new Set());
+      setActiveTab(null);
+    } catch (err) {
+      setError(getErrorMessage(err, '載入頁面資訊失敗。'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   // 切換頁面選取狀態
@@ -207,6 +488,7 @@ function App() {
 
     setLoading(true);
     setError(null);
+    setSuccess(null);
     try {
       const response = await mergePDFs(Array.from(selectedForMerge));
       const newFile: PDFFile = {
@@ -216,13 +498,24 @@ function App() {
         pageCount: response.pageCount,
         uploadedAt: new Date().toISOString(),
       };
-      setPdfFiles((prev: PDFFile[]) => [...prev, newFile]);
+      setPdfFiles((previousFiles: PDFFile[]) => [
+        ...previousFiles.filter((file) => file.id !== newFile.id),
+        newFile,
+      ]);
       setCurrentPdfId(response.newPdfId);
-      await loadPages(response.newPdfId);
       setSelectedForMerge(new Set());
+      setSelectedPages(new Set());
+      setActiveTab(null);
+      setPages([]);
+      setPagesOrder([]);
+      const previewLoaded = await loadEditedPreview(
+        response.newPdfId,
+        'PDF 已合併，但新檔案預覽載入失敗。',
+      );
+      if (!previewLoaded) return;
       setSuccess('PDF 合併成功！');
     } catch (err) {
-      setError('合併 PDF 失敗。');
+      setError(getErrorMessage(err, '合併 PDF 失敗。'));
     } finally {
       setLoading(false);
     }
@@ -232,13 +525,57 @@ function App() {
   const handleDownloadPDF = async () => {
     if (!currentPdfId) return;
 
-    setLoading(true);
+    await beginSave({
+      kind: 'pdf',
+      pdfId: currentPdfId,
+      suggestedName: getSuggestedPdfName(currentPdfId),
+    });
+  };
+
+  const handlePreparedSave = async (filename: string) => {
+    if (!pendingSave) return;
+
+    const preparedSave: PreparedSave = {
+      ...pendingSave,
+      request: updateSuggestedName(pendingSave.request, filename),
+    };
     setError(null);
+
+    if (!canUseNativeSaveFilePicker()) {
+      try {
+        await savePreparedFile(preparedSave, {
+          kind: 'browser',
+          filename,
+        });
+        setPendingSave(null);
+      } catch (err) {
+        setError(getErrorMessage(
+          err,
+          getSaveFailureMessage(preparedSave.request),
+        ));
+      }
+      return;
+    }
+
+    setLoading(true);
     try {
-      await downloadPDF(currentPdfId);
-      setSuccess('PDF 下載成功！');
+      const selection = await chooseNativeSaveFile(
+        getSaveFileOptions(preparedSave.request),
+      );
+      if (selection.status === 'cancelled') {
+        return;
+      }
+
+      const destination: FileDestination = selection.status === 'selected'
+        ? { kind: 'native', handle: selection.handle }
+        : { kind: 'browser', filename };
+      await savePreparedFile(preparedSave, destination);
+      setPendingSave(null);
     } catch (err) {
-      setError('下載 PDF 失敗。');
+      setError(getErrorMessage(
+        err,
+        getSaveFailureMessage(preparedSave.request),
+      ));
     } finally {
       setLoading(false);
     }
@@ -254,20 +591,28 @@ function App() {
 
     setLoading(true);
     setError(null);
+    setSuccess(null);
     try {
       await deletePDFApi(pdfId);
       setPdfFiles((prev: PDFFile[]) => prev.filter(f => f.id !== pdfId));
+      setSelectedForMerge((previousSelection) => {
+        const nextSelection = new Set(previousSelection);
+        nextSelection.delete(pdfId);
+        return nextSelection;
+      });
       
       // 如果刪除的是當前選取的 PDF，重置狀態
       if (currentPdfId === pdfId) {
         setCurrentPdfId(null);
         setPages([]);
+        setPagesOrder([]);
         setSelectedPages(new Set());
+        setActiveTab(null);
       }
       
       setSuccess('PDF 檔案刪除成功！');
     } catch (err) {
-      setError('刪除 PDF 失敗。');
+      setError(getErrorMessage(err, '刪除 PDF 失敗。'));
     } finally {
       setLoading(false);
     }
@@ -306,15 +651,27 @@ function App() {
   const handleApplyPageOrder = async () => {
     if (!currentPdfId || pagesOrder.length !== pages.length) return;
 
+    const previousPdfId = currentPdfId;
     setLoading(true);
     setError(null);
+    setSuccess(null);
     try {
-      const response = await reorderPages(currentPdfId, pagesOrder);
+      const response = await reorderPages(previousPdfId, pagesOrder);
+      replacePdfVersion(previousPdfId, response.newPdfId, {
+        pageCount: response.pageCount,
+      });
       setCurrentPdfId(response.newPdfId);
-      await loadPages(response.newPdfId);
+      setSelectedPages(new Set());
+      setPages([]);
+      setPagesOrder([]);
+      const previewLoaded = await loadEditedPreview(
+        response.newPdfId,
+        '頁面排序已更新，但新版本預覽載入失敗。',
+      );
+      if (!previewLoaded) return;
       setSuccess('頁面排序已更新！');
     } catch (err) {
-      setError('更新頁面排序失敗。');
+      setError(getErrorMessage(err, '更新頁面排序失敗。'));
     } finally {
       setLoading(false);
     }
@@ -322,6 +679,16 @@ function App() {
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f5f5f5' }}>
+      <SaveFileDialog
+        open={pendingSave !== null}
+        suggestedName={pendingSave?.request.suggestedName ?? ''}
+        extension={pendingSave ? getSaveExtension(pendingSave.request) : '.pdf'}
+        nativeSaveAvailable={canUseNativeSaveFilePicker()}
+        error={error}
+        loading={loading}
+        onCancel={() => setPendingSave(null)}
+        onSave={handlePreparedSave}
+      />
       <Container maxWidth="xl" sx={{ py: 4 }}>
         <Typography variant="h4" component="h1" gutterBottom align="center" sx={{ mb: 4, color: '#000000' }}>
           PDF 編輯器
@@ -374,6 +741,7 @@ function App() {
                   variant="contained"
                   color="primary"
                   onClick={handleMergePDFs}
+                  disabled={loading}
                   startIcon={<MergeIcon />}
                 >
                   合併選中的 PDF ({selectedForMerge.size})
@@ -395,7 +763,9 @@ function App() {
                         boxShadow: 3,
                       },
                     }}
-                    onClick={() => handleToggleMergeSelect(file.id)}
+                    onClick={() => {
+                      if (!loading) handleToggleMergeSelect(file.id);
+                    }}
                   >
                     <Stack direction="row" spacing={1} alignItems="center">
                       <Button
@@ -404,6 +774,7 @@ function App() {
                           e.stopPropagation();
                           handleSelectPdf(file.id);
                         }}
+                        disabled={loading}
                         startIcon={<UploadFileIcon />}
                         sx={{ flexGrow: 1, minWidth: 0 }}
                       >
@@ -418,6 +789,7 @@ function App() {
                           e.stopPropagation();
                           handleDeletePDF(file.id, e);
                         }}
+                        disabled={loading}
                       >
                         <DeleteIcon fontSize="small" />
                       </IconButton>
@@ -445,7 +817,7 @@ function App() {
                   variant={activeTab === 'delete' ? 'contained' : 'outlined'}
                   onClick={() => setActiveTab(activeTab === 'delete' ? null : 'delete')}
                   startIcon={<DeleteIcon />}
-                  disabled={selectedPages.size === 0}
+                  disabled={selectedPages.size === 0 || loading}
                 >
                   刪除頁面 ({selectedPages.size})
                 </Button>
@@ -456,6 +828,7 @@ function App() {
                   variant={activeTab === 'compress' ? 'contained' : 'outlined'}
                   onClick={() => setActiveTab(activeTab === 'compress' ? null : 'compress')}
                   startIcon={<CompressIcon />}
+                  disabled={loading}
                 >
                   壓縮 PDF
                 </Button>
@@ -466,6 +839,7 @@ function App() {
                   variant={activeTab === 'watermark' ? 'contained' : 'outlined'}
                   onClick={() => setActiveTab(activeTab === 'watermark' ? null : 'watermark')}
                   startIcon={<WatermarkIcon />}
+                  disabled={loading}
                 >
                   添加浮水印
                 </Button>
@@ -476,6 +850,7 @@ function App() {
                   variant={activeTab === 'convert' ? 'contained' : 'outlined'}
                   onClick={() => setActiveTab(activeTab === 'convert' ? null : 'convert')}
                   startIcon={<PhotoIcon />}
+                  disabled={loading}
                 >
                   轉換為圖片
                 </Button>
@@ -486,8 +861,9 @@ function App() {
                   variant="outlined"
                   onClick={handleDownloadPDF}
                   startIcon={<DownloadIcon />}
+                  disabled={loading}
                 >
-                  下載 PDF
+                  另存 PDF
                 </Button>
               </Grid>
             </Grid>
@@ -651,7 +1027,7 @@ function App() {
               onClick={handleConvert}
               disabled={loading}
             >
-              {loading ? <CircularProgress size={24} /> : `轉換為 ${convertFormat.toUpperCase()}`}
+              {loading ? <CircularProgress size={24} /> : `轉換並另存為 ${convertFormat.toUpperCase()}`}
             </Button>
           </Paper>
         )}

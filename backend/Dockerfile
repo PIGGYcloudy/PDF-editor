@@ -6,6 +6,7 @@ WORKDIR /app
 
 # 安裝系統依賴（用於 pdf2image）
 RUN apt-get update && apt-get install -y \
+    fonts-droid-fallback \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 

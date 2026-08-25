@@ -1,9 +1,11 @@
 # PDF Editor 維修計劃總覽
 
+> [!NOTE]
+> 本文件保留作為歷史維修紀錄。以下問題已在目前工作版本處理；頁面尺寸調整因無法可靠保留內容而移除，不再是支援功能。
+
 ## 專案資訊
 
 - **專案名稱**: PDF Editor
-- **工作目錄**: `d:/PDF-editor`
 - **開發環境**: Python 虛擬環境 `.venv/`
 - **容器化**: Docker Desktop
 - **後端端口**: 7999
@@ -12,11 +14,11 @@
 
 | 編號 | 問題名稱 | 嚴重程度 | 狀態 | 計劃文件 |
 |------|----------|----------|------|----------|
-| 01 | Convert Service 頁面索引錯位 | 🔴 高 | 待修復 | [repair-plan-01-convert-service.md](./repair-plan-01-convert-service.md) |
-| 02 | Compress Service 壓縮功能未實現 | 🔴 高 | 待修復 | [repair-plan-02-compress-service.md](./repair-plan-02-compress-service.md) |
-| 03 | PDF Service Resize 空白頁面 | 🔴 高 | 待修復 | [repair-plan-03-pdf-service-resize.md](./repair-plan-03-pdf-service-resize.md) |
-| 04 | Watermark Service 旋轉變形 | 🟡 中 | 待修復 | [repair-plan-04-watermark-service.md](./repair-plan-04-watermark-service.md) |
-| 05 | PDF Utils 函式命名衝突 | 🟢 低 | 待修復 | [repair-plan-05-pdf-utils-naming.md](./repair-plan-05-pdf-utils-naming.md) |
+| 01 | Convert Service 頁面索引錯位 | 🔴 高 | 已修復 | [repair-plan-01-convert-service.md](./repair-plan-01-convert-service.md) |
+| 02 | Compress Service 壓縮功能未實現 | 🔴 高 | 已修復 | [repair-plan-02-compress-service.md](./repair-plan-02-compress-service.md) |
+| 03 | PDF Service Resize 空白頁面 | 🔴 高 | 功能已移除 | [repair-plan-03-pdf-service-resize.md](./repair-plan-03-pdf-service-resize.md) |
+| 04 | Watermark Service 旋轉變形 | 🟡 中 | 已修復 | [repair-plan-04-watermark-service.md](./repair-plan-04-watermark-service.md) |
+| 05 | PDF Utils 函式命名衝突 | 🟢 低 | 已修復 | [repair-plan-05-pdf-utils-naming.md](./repair-plan-05-pdf-utils-naming.md) |
 
 ## 修復優先順序
 
