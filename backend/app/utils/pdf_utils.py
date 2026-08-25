@@ -4,7 +4,7 @@ PDF 工具函數
 import io
 import uuid
 from pathlib import Path
-from typing import List, Tuple
+from typing import BinaryIO, List, Optional, Tuple, Union
 
 from pypdf import PdfReader, PdfWriter
 from PIL import Image
@@ -13,9 +13,49 @@ from pdf2image import convert_from_path
 from app.config import UPLOADS_DIR, OUTPUTS_DIR, PAPER_SIZES, THUMBNAIL_SIZES
 
 
+PDF_VERSION_HEADERS = (
+    b"%PDF-1.0",
+    b"%PDF-1.1",
+    b"%PDF-1.2",
+    b"%PDF-1.3",
+    b"%PDF-1.4",
+    b"%PDF-1.5",
+    b"%PDF-1.6",
+    b"%PDF-1.7",
+    b"%PDF-2.0",
+)
+
+
 def generate_unique_id() -> str:
     """生成唯一的檔案 ID"""
     return str(uuid.uuid4())
+
+
+def clone_pdf_writer(
+    source: Union[Path, BinaryIO],
+    minimum_version: Optional[bytes] = None,
+) -> PdfWriter:
+    """完整複製 PDF，並保留來源版本或提高到功能所需的最低版本。"""
+    reader = PdfReader(source)
+    writer = PdfWriter(clone_from=reader)
+    source_header = reader.pdf_header
+    if isinstance(source_header, str):
+        source_header = source_header.encode("ascii")
+
+    if source_header not in PDF_VERSION_HEADERS:
+        source_header = b"%PDF-1.3"
+
+    target_header = source_header
+    if minimum_version in PDF_VERSION_HEADERS:
+        target_header = PDF_VERSION_HEADERS[
+            max(
+                PDF_VERSION_HEADERS.index(source_header),
+                PDF_VERSION_HEADERS.index(minimum_version),
+            )
+        ]
+
+    writer.pdf_header = target_header
+    return writer
 
 
 def get_pdf_page_count(pdf_path: Path) -> int:
@@ -125,11 +165,15 @@ def save_uploaded_file(file_content: bytes, filename: str) -> Path:
         儲存後的路徑
     """
     unique_id = generate_unique_id()
+    safe_filename = Path(filename.replace("\\", "/")).name
+    if not safe_filename:
+        safe_filename = "document.pdf"
+
     # 確保副檔名是 .pdf
-    if not filename.lower().endswith('.pdf'):
-        filename = filename + '.pdf'
+    if not safe_filename.lower().endswith('.pdf'):
+        safe_filename = safe_filename + '.pdf'
     
-    new_filename = f"{unique_id}_{filename}"
+    new_filename = f"{unique_id}_{safe_filename}"
     file_path = UPLOADS_DIR / new_filename
     
     with open(file_path, "wb") as f:
@@ -210,6 +254,11 @@ def validate_page_numbers(page_numbers: List[int], total_pages: int) -> None:
     Raises:
         ValueError: 如果頁面號碼無效
     """
+    if not page_numbers:
+        raise ValueError("至少需要選擇一個頁面")
+    if len(page_numbers) != len(set(page_numbers)):
+        raise ValueError("頁面號碼不得重複")
+
     for page_num in page_numbers:
         if page_num < 1 or page_num > total_pages:
             raise ValueError(f"無效的頁面號碼：{page_num} (有效範圍：1-{total_pages})")

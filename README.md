@@ -1,260 +1,118 @@
-# PDF 編輯器
+# PDF Editor
 
-一個基於 React + FastAPI 的網頁版 PDF 編輯器，提供頁面管理、尺寸調整、壓縮、浮水印和格式轉換等功能。
+[![CI](https://github.com/PIGGYcloudy/PDF-editor/actions/workflows/ci.yml/badge.svg)](https://github.com/PIGGYcloudy/PDF-editor/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## 功能特性
+一個可自行託管的網頁版 PDF 工具，使用 React、TypeScript 與 FastAPI 建置。它提供常見的頁面整理、壓縮、浮水印與圖片轉換功能，適合在本機或受信任環境處理文件。
 
-- ✅ **檔案上傳**：支援拖曳檔案上傳，可同時上傳多個 PDF
-- ✅ **頁面管理**：刪除頁面、拖曳重新排序
-- ✅ **尺寸調整**：支援常用尺寸 (A3/A4/A5/B2/B3/B4/B5/Letter/Legal) 和自訂尺寸
-- ✅ **PDF 壓縮**：降低圖片解析度以減少檔案大小
-- ✅ **浮水印功能**：支援文字和圖片浮水印，可設定位置、透明度、旋轉角度
-- ✅ **格式轉換**：PDF 轉 JPG/PNG，支援不同解析度
+> [!IMPORTANT]
+> PDF 會上傳到執行此服務的後端並暫存在磁碟。請勿把預設設定直接暴露到公開網路；正式部署前請閱讀 [Security Policy](SECURITY.md#deployment-scope)。
 
-## 技術棧
+## 功能
 
-### 前端
-- React 18 + TypeScript
-- Material-UI (MUI)
-- react-beautiful-dnd (拖曳排序)
-- react-dropzone (檔案上傳)
-- Vite (建構工具)
+- 拖曳或選取多份 PDF 上傳
+- 刪除頁面與拖曳重新排序
+- 合併多份 PDF
+- 保留文字與向量內容的 PDF 壓縮
+- 文字與圖片浮水印
+- PDF 頁面轉 JPG 或 PNG，並以 ZIP 下載
+- 頁面縮圖與高解析度預覽
+
+## 技術架構
+
+- 前端：React 18、TypeScript、Material UI、Vite
+- 後端：FastAPI、pypdf、Pillow、pdf2image、ReportLab
+- 系統工具：Poppler
+- 部署：Docker Compose、Nginx
+
+## 使用 Docker 啟動
+
+需求：Docker 與 Docker Compose。
+
+```bash
+git clone https://github.com/PIGGYcloudy/PDF-editor.git
+cd PDF-editor
+docker compose up --build
+```
+
+啟動後：
+
+- Web UI：<http://localhost:8081>
+- 後端 API：<http://localhost:8000>
+- OpenAPI 文件：<http://localhost:8000/docs>
+
+停止服務：
+
+```bash
+docker compose down
+```
+
+上傳與產出檔案位於 `backend/uploads/` 與 `backend/outputs/`。這些內容不會被 Git 追蹤，也會被排除在 Docker image 之外；請依自己的隱私與保留政策定期清理。
+
+## 本機開發
 
 ### 後端
-- FastAPI
-- PyPDF2 / pypdf (PDF 處理)
-- Pillow (圖片處理)
-- pdf2image (PDF 轉圖片)
-- Uvicorn (ASGI 伺服器)
 
-## 專案結構
+需求：Python 3.11+ 與 Poppler。
 
-```
-PDF-editor/
-├── .venv/                    # Python 虛擬環境
-├── backend/                  # FastAPI 後端
-│   ├── app/
-│   │   ├── main.py          # FastAPI 應用入口
-│   │   ├── config.py        # 配置設定
-│   │   ├── models/          # Pydantic 模型
-│   │   ├── routers/         # API 路由
-│   │   ├── services/        # 業務邏輯
-│   │   └── utils/           # 工具函數
-│   ├── uploads/             # 上傳檔案暫存
-│   ├── outputs/             # 輸出檔案
-│   └── requirements.txt     # Python 依賴
-├── frontend/                # React 前端
-│   ├── src/
-│   │   ├── components/      # React 元件
-│   │   ├── hooks/           # Custom Hooks
-│   │   ├── services/        # API 服務
-│   │   └── types/           # TypeScript 類型
-│   ├── package.json
-│   └── vite.config.ts
-├── plans/                   # 計畫文件
-├── docker-compose.yml       # Docker Compose 配置
-├── Dockerfile.development   # 開發環境 Dockerfile
-├── .gitignore
-└── README.md
-```
-
-## 快速開始 (Docker)
-
-> **推薦方式**: 使用 Docker 運行，無需安裝 Python、Node.js 等環境
-
-### 系統需求
-- Docker 和 Docker Compose
-
-### 啟動步驟
+Ubuntu/Debian：
 
 ```bash
-# 1. 建構並啟動所有服務
-docker-compose up --build
-
-# 2. 開啟瀏覽器訪問 http://localhost
-```
-
-應用程式將在以下端口運行：
-- **前端**: http://localhost
-- **後端 API**: http://localhost:7999
-- **API 文檔**: http://localhost:7999/docs
-
-### 其他 Docker 命令
-
-```bash
-# 背景運行
-docker-compose up -d
-
-# 查看日誌
-docker-compose logs -f
-
-# 停止服務
-docker-compose down
-
-# 停止並刪除卷（將刪除上傳和輸出檔案）
-docker-compose down -v
-```
-
-## 本地安裝與設定
-
-### 系統需求 (本地開發)
-
-- Python 3.11+
-- Node.js 18+ (如未安裝，請先從 https://nodejs.org/ 下載並安裝)
-- Poppler (用於 pdf2image)
-
-### Node.js 安裝 (如尚未安裝)
-
-**Windows**:
-1. 前往 https://nodejs.org/ 下載 LTS 版本
-2. 執行安裝程式，選擇「Add to PATH」選項
-3. 驗證安裝：`node --version` 和 `npm --version`
-
-**macOS**:
-```bash
-brew install node
-```
-
-**Ubuntu/Debian**:
-```bash
-curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
-sudo apt-get install -y nodejs
-```
-
-### 後端設定
-
-1. 建立並啟動虛擬環境：
-
-```bash
+sudo apt-get install poppler-utils fonts-droid-fallback
 python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# macOS/Linux
 source .venv/bin/activate
-```
-
-2. 安裝依賴：
-
-```bash
+pip install -r backend/requirements.txt
 cd backend
-pip install -r requirements.txt
+uvicorn app.main:app --reload --host 127.0.0.1 --port 7999
 ```
 
-3. 安裝 Poppler (用於 PDF 轉圖片)：
+macOS 可使用 `brew install poppler` 安裝 Poppler。
 
-**Windows**:
-- 下載：https://github.com/oschwartz10612/poppler-windows/releases
-- 解壓後將 `poppler\Library\bin` 加入系統 PATH
+### 前端
 
-**macOS**:
-```bash
-brew install poppler
-```
-
-**Ubuntu/Debian**:
-```bash
-sudo apt-get install poppler-utils
-```
-
-4. 啟動後端伺服器：
-
-```bash
-cd backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 7999
-```
-
-> **注意**: 如果端口 7999 被佔用，可以修改為其他可用端口，並同步更新 `frontend/vite.config.ts` 中的代理目標。
-
-### 前端設定
-
-> **注意**: 在安裝前端依賴前，請確保已安裝 Node.js 和 npm。
-
-1. 安裝依賴：
+需求：Node.js 20.19+ 或 22.12+。
 
 ```bash
 cd frontend
-npm install
-```
-
-2. 啟動開發伺服器：
-
-```bash
+npm ci
 npm run dev
 ```
 
-3. 開啟瀏覽器訪問 http://localhost:5173
+開發伺服器位於 <http://localhost:5173>，並將 `/api` 代理至 <http://localhost:7999>。
 
-> **注意**: 前端預設代理到後端端口 7999。如果後端運行在其他端口，請修改 `frontend/vite.config.ts` 中的 `target` 配置。
-
-## 使用說明
-
-### 上傳 PDF
-
-1. 將 PDF 檔案拖曳到上傳區域，或點擊區域選擇檔案
-2. 支援同時上傳多個 PDF 檔案
-
-### 管理頁面
-
-1. **刪除頁面**：點擊頁面縮圖選取，點擊「刪除頁面」按鈕
-2. **重新排序**：拖曳頁面縮圖到目標位置
-
-### 調整尺寸
-
-1. 選擇預設尺寸或輸入自訂尺寸
-2. 選擇要調整的頁面（單頁或所有頁面）
-3. 點擊「調整尺寸」按鈕
-
-### 壓縮 PDF
-
-1. 調整壓縮品質滑桿
-2. 點擊「壓縮」按鈕
-3. 查看壓縮比並下載
-
-### 添加浮水印
-
-1. 選擇文字或圖片浮水印
-2. 設定浮水印參數（位置、透明度、旋轉等）
-3. 點擊「添加浮水印」按鈕
-
-### 轉換為圖片
-
-1. 選擇輸出格式（JPG/PNG）
-2. 選擇解析度（72/150/300 DPI）
-3. 點擊「轉換」按鈕
-4. 下載 ZIP 檔案
-
-## API 文件
-
-詳細的 API 文件請參考 [`plans/api-spec.md`](plans/api-spec.md)。
-
-## 開發文件
-
-- [架構文件](plans/architecture.md)
-- [開發步驟](plans/development-steps.md)
-- [系統架構圖](plans/system-diagram.md)
-- [API 規格](plans/api-spec.md)
-- [測試計畫](plans/test-plan.md)
-
-## 測試
-
-### 後端測試
+## 測試與建置
 
 ```bash
 cd backend
-pytest tests/
+pytest -q
 ```
-
-### 前端測試
 
 ```bash
 cd frontend
-npm test
+npm ci
+npm run build
 ```
 
-## 授權
+每次 push 到 `main` 與每個 Pull Request 都會透過 GitHub Actions 執行測試、production build 與依賴漏洞稽核；Dependabot 每週檢查 Python 與 npm 更新。
 
-MIT License
+## API 與開發文件
 
-## 貢獻
+- 互動式 API 文件：啟動後開啟 `/docs`
+- [歷史設計與修復紀錄](plans/README.md)
 
-歡迎提出 Issue 和 Pull Request！
+`plans/` 保留早期設計與修復紀錄，部分內容描述已移除的功能；目前行為以程式碼、OpenAPI 與本 README 為準。
+
+## 已知限制
+
+- 檔案索引目前保存在單一後端程序的記憶體中；服務重新啟動後不會恢復索引。
+- 預設沒有使用者帳號、身分驗證、速率限制或自動清理排程。
+- 100 MB 限制是單一檔案上限；大型或複雜 PDF 仍可能耗用大量記憶體與 CPU。
+- 加密或格式異常的 PDF 可能無法處理。
+
+## 參與貢獻
+
+歡迎回報 Issue 或提交 Pull Request。開始前請閱讀 [CONTRIBUTING.md](CONTRIBUTING.md)；安全問題請依 [SECURITY.md](SECURITY.md) 私下回報。
+
+## License
+
+本專案採用 [MIT License](LICENSE)。

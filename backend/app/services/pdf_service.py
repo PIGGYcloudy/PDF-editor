@@ -67,6 +67,9 @@ class PDFService:
             raise ValueError(f"頁面順序長度 ({len(page_order)}) 與總頁面數 ({total_pages}) 不符")
 
         validate_page_numbers(page_order, total_pages)
+        expected_pages = set(range(1, total_pages + 1))
+        if set(page_order) != expected_pages:
+            raise ValueError("頁面順序必須包含每一頁且不得重複")
 
         # 按照新順序添加頁面
         for page_num in page_order:

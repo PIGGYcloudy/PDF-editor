@@ -183,20 +183,12 @@ export async function getPagePreview(pdfId: string, pageNumber: number): Promise
   return response.data;
 }
 
-// 下載 PDF
-export async function downloadPDF(pdfId: string): Promise<void> {
+// 取得要下載的 PDF 內容
+export async function downloadPDF(pdfId: string): Promise<Blob> {
   const response = await api.get(`/pdf/download/${pdfId}`, {
     responseType: 'blob',
   });
-  
-  const url = window.URL.createObjectURL(new Blob([response.data]));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `${pdfId}.pdf`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  window.URL.revokeObjectURL(url);
+  return response.data;
 }
 
 export default api;

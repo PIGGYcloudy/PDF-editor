@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
+from pypdf import PdfReader
 
 from app.config import UPLOADS_DIR, OUTPUTS_DIR, MAX_FILE_SIZE, PAPER_SIZES, CORS_ORIGINS
 from app.models.schemas import (
@@ -47,14 +48,16 @@ async def upload_pdf(files: List[UploadFile] = File(...)):
     if not files:
         raise HTTPException(status_code=400, detail="沒有上傳任何檔案")
 
-    uploaded_files = []
+    validated_files = []
 
     for file in files:
+        filename = file.filename or "document.pdf"
+
         # 檢查檔案類型
         if file.content_type != "application/pdf":
             raise HTTPException(
                 status_code=400,
-                detail=f"檔案類型不支援：{file.filename} (需要 PDF 格式)"
+                detail=f"檔案類型不支援：{filename} (需要 PDF 格式)"
             )
 
         # 讀取檔案內容
@@ -64,23 +67,45 @@ async def upload_pdf(files: List[UploadFile] = File(...)):
         if len(content) > MAX_FILE_SIZE:
             raise HTTPException(
                 status_code=413,
-                detail=f"檔案超過大小限制：{file.filename} (最大 100MB)"
+                detail=f"檔案超過大小限制：{filename} (最大 100MB)"
             )
 
-        # 儲存檔案
-        file_path = save_uploaded_file(content, file.filename)
-        file_id = file_path.stem.split("_")[0]  # 提取 UUID
+        # 所有檔案先在記憶體中驗證，避免批次上傳中途失敗留下半套資料。
+        try:
+            page_count = len(PdfReader(io.BytesIO(content)).pages)
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail=f"PDF 檔案損壞或格式無法解析：{filename}",
+            )
+        if page_count < 1:
+            raise HTTPException(
+                status_code=400,
+                detail=f"PDF 檔案沒有任何頁面：{filename}",
+            )
 
-        # 獲取頁面數量
-        page_count = get_pdf_page_count(file_path)
+        validated_files.append((filename, content, page_count))
 
-        # 儲存映射
+    saved_files = []
+    try:
+        for filename, content, page_count in validated_files:
+            file_path = save_uploaded_file(content, filename)
+            file_id = file_path.stem.split("_")[0]
+            saved_files.append(
+                (file_id, file_path, filename, len(content), page_count)
+            )
+    except Exception:
+        for _, file_path, _, _, _ in saved_files:
+            file_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="PDF 檔案儲存失敗")
+
+    uploaded_files = []
+    for file_id, file_path, filename, size, page_count in saved_files:
         pdf_files[file_id] = file_path
-
         uploaded_files.append(PDFFile(
             id=file_id,
-            name=file.filename,
-            size=len(content),
+            name=filename,
+            size=size,
             pageCount=page_count,
             uploadedAt=datetime.now()
         ))
@@ -197,6 +222,8 @@ async def compress_pdf(request: CompressRequest):
             compressedSize=compressed_size,
             compressionRatio=round(compression_ratio, 2)
         )
+    except (OSError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -227,6 +254,8 @@ async def add_text_watermark(request: WatermarkTextRequest):
         pdf_files[new_id] = new_path
 
         return WatermarkResponse(newPdfId=new_id)
+    except (OSError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -245,6 +274,15 @@ async def add_image_watermark(
     if pdfId not in pdf_files:
         raise HTTPException(status_code=404, detail="PDF 檔案不存在")
 
+    if position not in WatermarkService.POSITIONS:
+        raise HTTPException(status_code=400, detail=f"無效的浮水印位置：{position}")
+    if not 0 <= opacity <= 1:
+        raise HTTPException(status_code=400, detail="透明度必須介於 0 和 1")
+    if imageWidth is not None and imageWidth < 1:
+        raise HTTPException(status_code=400, detail="浮水印圖片寬度必須大於 0")
+    if pages not in {"all", "selected"}:
+        raise HTTPException(status_code=400, detail="pages 必須是 all 或 selected")
+
     # 檢查圖片類型
     allowed_image_types = ["image/png", "image/jpeg", "image/jpg", "image/gif"]
     if image.content_type not in allowed_image_types:
@@ -262,11 +300,21 @@ async def add_image_watermark(
 
     # 解析選定頁面
     page_numbers = None
-    if pages == "selected" and selectedPageNumbers:
+    if pages == "selected":
+        if not selectedPageNumbers:
+            image_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=400,
+                detail="pages 為 selected 時必須提供 selectedPageNumbers",
+            )
         try:
             page_numbers = [int(p.strip()) for p in selectedPageNumbers.split(",")]
         except ValueError:
+            image_path.unlink(missing_ok=True)
             raise HTTPException(status_code=400, detail="無效的頁面號碼格式")
+        if len(page_numbers) != len(set(page_numbers)):
+            image_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail="頁面號碼不得重複")
 
     try:
         new_path = WatermarkService.add_image_watermark(
@@ -284,12 +332,13 @@ async def add_image_watermark(
         # 儲存映射
         pdf_files[new_id] = new_path
 
-        # 清理臨時圖片
-        image_path.unlink()
-
         return WatermarkResponse(newPdfId=new_id)
+    except (OSError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        image_path.unlink(missing_ok=True)
 
 
 @router.get("/thumbnail/{pdf_id}/page/{page_number}")
@@ -309,7 +358,7 @@ async def get_thumbnail(pdf_id: str, page_number: int, size: str = "medium"):
             io.BytesIO(thumbnail_bytes),
             media_type="image/png"
         )
-    except ValueError as e:
+    except (OSError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -329,7 +378,7 @@ async def merge_pdfs(pdf_ids: List[str] = Form(...)):
     try:
         # 合併 PDF
         merged_path = PDFService.merge_pdfs([pdf_files[pdf_id] for pdf_id in pdf_ids])
-        merged_id = merged_path.stem.split("_")[0]
+        merged_id = merged_path.stem.rsplit("_", 1)[-1]
 
         # 儲存映射
         pdf_files[merged_id] = merged_path
@@ -384,6 +433,8 @@ async def get_page_preview(pdf_id: str, page_number: int):
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
