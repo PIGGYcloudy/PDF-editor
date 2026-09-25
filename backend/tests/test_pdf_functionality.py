@@ -1,5 +1,6 @@
 import inspect
 import os
+import threading
 import time
 import uuid
 import zipfile
@@ -40,7 +41,8 @@ from app.services.cleanup_service import CleanupService
 from app.services.compress_service import CompressService
 from app.services.pdf_service import PDFService
 from app.services.watermark_service import WatermarkService
-from app.utils.pdf_utils import output_pdf_id, resolve_pdf_path
+from app.utils import pdf_utils
+from app.utils.pdf_utils import output_pdf_id, render_page, resolve_pdf_path
 
 
 def create_sample_pdf(path: Path, include_image: bool = False) -> Path:
@@ -816,3 +818,113 @@ def test_convert_download_only_serves_converted_zips(tmp_path: Path):
 
     assert response.status_code == 404
     assert output_path.exists()
+
+
+def test_upload_streams_large_files_intact(tmp_path: Path):
+    # 超過 1MB 的上傳會由 Starlette 寫入暫存檔，確認從暫存檔驗證與複製的結果。
+    source = create_sample_pdf(tmp_path / "source.pdf", include_image=True)
+    source_bytes = source.read_bytes()
+    assert len(source_bytes) > 1024 * 1024
+    client = TestClient(app)
+
+    upload = client.post(
+        "/api/pdf/upload",
+        files=[("files", ("large.pdf", source_bytes, "application/pdf"))],
+    )
+
+    assert upload.status_code == 200
+    uploaded = upload.json()["files"][0]
+    assert uploaded["size"] == len(source_bytes)
+    assert uploaded["pageCount"] == 2
+    download = client.get(f"/api/pdf/download/{uploaded['id']}")
+    assert download.content == source_bytes
+
+
+def test_render_page_caps_resolution_of_oversized_pages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # 降低上限，用 A4 代替真正的超大頁面；A4 在 300 DPI 約 870 萬像素。
+    monkeypatch.setattr(pdf_utils, "MAX_RENDER_PIXELS", 1_000_000)
+    source = create_sample_pdf(tmp_path / "source.pdf")
+
+    capped_image = render_page(source, 1, dpi=300)
+    uncapped_image = render_page(source, 1, dpi=72)
+
+    assert capped_image.width * capped_image.height <= 1_000_000
+    # 降低 DPI 時維持頁面比例，而且只降到剛好符合上限。
+    assert capped_image.width * capped_image.height > 900_000
+    assert abs(capped_image.height / capped_image.width - A4[1] / A4[0]) < 0.01
+    # 未超過上限時維持原本的 DPI。
+    assert abs(uncapped_image.width - A4[0]) <= 1
+    assert abs(uncapped_image.height - A4[1]) <= 1
+
+
+def test_render_page_rejects_invalid_page_numbers(tmp_path: Path):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    with pytest.raises(ValueError, match="無效的頁面號碼"):
+        render_page(source, 3, dpi=72)
+    assert client.get(f"/api/pdf/thumbnail/{pdf_id}/page/3").status_code == 400
+    assert client.get(f"/api/pdf/preview/{pdf_id}/0").status_code == 400
+
+
+def test_render_page_limits_concurrent_renders(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    lock = threading.Lock()
+    active = 0
+    max_active = 0
+
+    def slow_convert(pdf_path, **kwargs):
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.05)
+        with lock:
+            active -= 1
+        return [Image.new("RGB", (10, 10), "white")]
+
+    monkeypatch.setattr(pdf_utils, "convert_from_path", slow_convert)
+    monkeypatch.setattr(pdf_utils, "_render_slots", threading.BoundedSemaphore(2))
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        images = list(executor.map(
+            lambda _: render_page(source, 1, dpi=72),
+            range(6),
+        ))
+
+    assert len(images) == 6
+    assert max_active <= 2
+
+
+def test_all_page_rendering_goes_through_render_page(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # 若有路由自行呼叫 pdf2image，就會繞過同時渲染數量與像素上限。
+    rendered_dpis = []
+
+    def fake_convert(pdf_path, **kwargs):
+        rendered_dpis.append(kwargs["dpi"])
+        return [Image.new("RGB", (10, 10), "white")]
+
+    monkeypatch.setattr(pdf_utils, "convert_from_path", fake_convert)
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    assert client.get(f"/api/pdf/thumbnail/{pdf_id}/page/1").status_code == 200
+    assert client.get(f"/api/pdf/preview/{pdf_id}/1").status_code == 200
+    convert = client.post(
+        "/api/convert/to-image",
+        json={"pdfId": pdf_id, "format": "jpg", "dpi": 72},
+    )
+
+    assert convert.status_code == 200
+    assert rendered_dpis == [100, 300, 72, 72]

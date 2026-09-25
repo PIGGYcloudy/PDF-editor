@@ -9,11 +9,14 @@ from pathlib import Path
 from typing import List, Optional
 
 from PIL import Image
-from pypdf import PdfReader
-from pdf2image import convert_from_path
 
 from app.config import OUTPUTS_DIR
-from app.utils.pdf_utils import generate_unique_id, validate_page_numbers
+from app.utils.pdf_utils import (
+    generate_unique_id,
+    get_pdf_page_count,
+    render_page,
+    validate_page_numbers,
+)
 
 ZIP_FILENAME_PATTERN = re.compile(
     r"pdf_images_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.zip"
@@ -60,8 +63,7 @@ class ConvertService:
         Returns:
             (ZIP 檔案路徑，圖片數量)
         """
-        reader = PdfReader(str(pdf_path))
-        total_pages = len(reader.pages)
+        total_pages = get_pdf_page_count(pdf_path)
 
         # 如果沒有指定頁面，則轉換所有頁面
         if page_numbers is None:
@@ -81,17 +83,7 @@ class ConvertService:
 
         for page_num in page_numbers:
             # 轉換單頁為圖片
-            images = convert_from_path(
-                str(pdf_path),
-                dpi=dpi,
-                first_page=page_num,
-                last_page=page_num
-            )
-            
-            if not images:
-                continue
-                
-            img = images[0]
+            img = render_page(pdf_path, page_num, dpi)
 
             # 轉換為 RGB (如果格式是 JPG)
             if format_ext == "jpg" and img.mode != "RGB":
@@ -141,17 +133,7 @@ class ConvertService:
         Returns:
             圖片的 bytes
         """
-        images = convert_from_path(
-            str(pdf_path),
-            dpi=dpi,
-            first_page=page_number,
-            last_page=page_number
-        )
-
-        if not images:
-            raise ValueError(f"無法轉換頁面 {page_number}")
-
-        img = images[0]
+        img = render_page(pdf_path, page_number, dpi)
 
         # 轉換為 RGB (如果格式是 JPG)
         if output_format.lower() == "jpg" and img.mode != "RGB":

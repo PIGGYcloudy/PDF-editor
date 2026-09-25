@@ -31,6 +31,18 @@ if FILE_RETENTION_HOURS < 0:
 if CLEANUP_INTERVAL_MINUTES <= 0:
     raise ValueError("CLEANUP_INTERVAL_MINUTES 必須大於 0")
 
+# 渲染設定：Poppler 渲染非常耗用 CPU 與記憶體，限制同時渲染的頁數，超過的
+# 請求排隊等待。預設取 CPU 核心數，但最多 4，避免大型頁面同時渲染耗盡記憶體。
+MAX_CONCURRENT_RENDERS = int(
+    os.getenv("MAX_CONCURRENT_RENDERS", str(min(os.cpu_count() or 1, 4)))
+)
+if MAX_CONCURRENT_RENDERS < 1:
+    raise ValueError("MAX_CONCURRENT_RENDERS 必須大於 0")
+
+# 單張渲染圖片的像素上限；超大頁面會自動降低 DPI。A3 在 300 DPI 約 1750 萬像素，
+# 不受影響。
+MAX_RENDER_PIXELS = 25_000_000
+
 # 圖片設定
 THUMBNAIL_SIZES = {
     "small": (100, 100),

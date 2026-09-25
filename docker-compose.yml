@@ -13,6 +13,8 @@ services:
       - PYTHONUNBUFFERED=1
       - FILE_RETENTION_HOURS=24
       - CLEANUP_INTERVAL_MINUTES=30
+      # 同時渲染的頁數上限，預設為 CPU 核心數（最多 4）
+      # - MAX_CONCURRENT_RENDERS=2
     networks:
       - pdf-editor-network
     restart: unless-stopped

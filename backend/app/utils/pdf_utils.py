@@ -2,7 +2,10 @@
 PDF 工具函數
 """
 import io
+import math
 import os
+import shutil
+import threading
 import uuid
 from pathlib import Path
 from typing import BinaryIO, List, Optional, Tuple, Union
@@ -11,7 +14,18 @@ from pypdf import PdfReader, PdfWriter
 from PIL import Image
 from pdf2image import convert_from_path
 
-from app.config import UPLOADS_DIR, OUTPUTS_DIR, PAPER_SIZES, THUMBNAIL_SIZES
+from app.config import (
+    MAX_CONCURRENT_RENDERS,
+    MAX_RENDER_PIXELS,
+    OUTPUTS_DIR,
+    PAPER_SIZES,
+    THUMBNAIL_SIZES,
+    UPLOADS_DIR,
+)
+
+# 所有 Poppler 渲染都必須經過 render_page，以此限制同時執行的數量。路由在
+# threadpool 中排隊等待，不會卡住 event loop。
+_render_slots = threading.BoundedSemaphore(MAX_CONCURRENT_RENDERS)
 
 
 PDF_VERSION_HEADERS = (
@@ -61,8 +75,9 @@ def clone_pdf_writer(
 
 def get_pdf_page_count(pdf_path: Path) -> int:
     """獲取 PDF 頁面數量"""
-    reader = PdfReader(str(pdf_path))
-    return len(reader.pages)
+    # 傳入檔案物件讓 pypdf 按需讀取，不把整份 PDF 載入記憶體。
+    with open(pdf_path, "rb") as pdf_file:
+        return len(PdfReader(pdf_file).pages)
 
 
 def get_pdf_page_info(pdf_path: Path) -> List[dict]:
@@ -114,6 +129,54 @@ def get_single_page_size(pdf_path: Path, page_number: int) -> Tuple[int, int]:
     return int(media_box.width), int(media_box.height)
 
 
+def render_page(pdf_path: Path, page_number: int, dpi: int) -> Image.Image:
+    """
+    將 PDF 單頁渲染為圖片
+
+    同時渲染的數量受 MAX_CONCURRENT_RENDERS 限制；頁面過大時會降低 DPI，
+    讓輸出不超過 MAX_RENDER_PIXELS，避免超大頁面耗盡記憶體。
+
+    Args:
+        pdf_path: PDF 檔案路徑
+        page_number: 頁面號碼 (1-based)
+        dpi: 期望的解析度
+
+    Returns:
+        渲染後的圖片
+
+    Raises:
+        ValueError: 頁面號碼無效或無法渲染
+    """
+    # 傳入檔案物件而非路徑，pypdf 才會按需讀取，不會把整份 PDF 載入記憶體。
+    with open(pdf_path, "rb") as pdf_file:
+        reader = PdfReader(pdf_file)
+        total_pages = len(reader.pages)
+        if not 1 <= page_number <= total_pages:
+            raise ValueError(
+                f"無效的頁面號碼：{page_number} (有效範圍：1-{total_pages})"
+            )
+        page = reader.pages[page_number - 1]
+        # Poppler 預設渲染 MediaBox；CropBox 只會比它小，因此以此估算較保守。
+        width_inches = float(page.mediabox.width) * float(page.user_unit) / 72
+        height_inches = float(page.mediabox.height) * float(page.user_unit) / 72
+
+    page_area = width_inches * height_inches
+    if page_area > 0 and dpi * dpi * page_area > MAX_RENDER_PIXELS:
+        dpi = max(1, math.floor(math.sqrt(MAX_RENDER_PIXELS / page_area)))
+
+    with _render_slots:
+        images = convert_from_path(
+            str(pdf_path),
+            dpi=dpi,
+            first_page=page_number,
+            last_page=page_number,
+        )
+
+    if not images:
+        raise ValueError(f"無法轉換頁面 {page_number} 為圖片")
+    return images[0]
+
+
 def generate_thumbnail(
     pdf_path: Path,
     page_number: int,
@@ -121,30 +184,19 @@ def generate_thumbnail(
 ) -> bytes:
     """
     生成 PDF 頁面縮圖
-    
+
     Args:
         pdf_path: PDF 檔案路徑
         page_number: 頁面號碼 (1-based)
         size: 縮圖大小 ("small", "medium", "large")
-    
+
     Returns:
         PNG 圖片的 bytes
     """
     target_size = THUMBNAIL_SIZES.get(size, THUMBNAIL_SIZES["medium"])
-    
-    # 使用 pdf2image 轉換頁面為圖片
-    images = convert_from_path(
-        str(pdf_path),
-        first_page=page_number,
-        last_page=page_number,
-        dpi=100
-    )
-    
-    if not images:
-        raise ValueError(f"無法轉換頁面 {page_number} 為圖片")
-    
-    img = images[0]
-    
+
+    img = render_page(pdf_path, page_number, dpi=100)
+
     # 保持長寬比縮放
     img.thumbnail(target_size, Image.Resampling.LANCZOS)
     
@@ -154,12 +206,12 @@ def generate_thumbnail(
     return buffer.getvalue()
 
 
-def save_uploaded_file(file_content: bytes, filename: str) -> Path:
+def save_uploaded_file(source: BinaryIO, filename: str) -> Path:
     """
     儲存上傳的檔案
-    
+
     Args:
-        file_content: 檔案內容
+        source: 上傳檔案的串流，會從目前位置分段複製
         filename: 原始檔案名稱
     
     Returns:
@@ -176,10 +228,10 @@ def save_uploaded_file(file_content: bytes, filename: str) -> Path:
     
     new_filename = f"{unique_id}_{safe_filename}"
     file_path = UPLOADS_DIR / new_filename
-    
+
     with open(file_path, "wb") as f:
-        f.write(file_content)
-    
+        shutil.copyfileobj(source, f)
+
     return file_path
 
 

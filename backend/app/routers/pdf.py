@@ -2,6 +2,7 @@
 PDF 處理路由
 """
 import io
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -27,9 +28,9 @@ from app.models.schemas import (
 from app.utils.pdf_utils import (
     generate_unique_id,
     get_pdf_page_count,
-    get_pdf_page_info,
     generate_thumbnail,
     output_pdf_id,
+    render_page,
     resolve_pdf_path,
     save_uploaded_file,
     uploaded_pdf_id,
@@ -69,19 +70,23 @@ def upload_pdf(files: List[UploadFile] = File(...)):
                 detail=f"檔案類型不支援：{filename} (需要 PDF 格式)"
             )
 
-        # 讀取檔案內容
-        content = file.file.read()
+        # Starlette 已把上傳內容暫存（超過 1MB 會寫到暫存檔），直接從暫存檔
+        # 驗證與複製，不把整份 PDF 讀進記憶體。
+        upload = file.file
+        upload.seek(0, os.SEEK_END)
+        size = upload.tell()
+        upload.seek(0)
 
         # 檢查檔案大小
-        if len(content) > MAX_FILE_SIZE:
+        if size > MAX_FILE_SIZE:
             raise HTTPException(
                 status_code=413,
                 detail=f"檔案超過大小限制：{filename} (最大 100MB)"
             )
 
-        # 所有檔案先在記憶體中驗證，避免批次上傳中途失敗留下半套資料。
+        # 所有檔案先完成驗證再寫入，避免批次上傳中途失敗留下半套資料。
         try:
-            page_count = len(PdfReader(io.BytesIO(content)).pages)
+            page_count = len(PdfReader(upload).pages)
         except Exception:
             raise HTTPException(
                 status_code=400,
@@ -92,16 +97,17 @@ def upload_pdf(files: List[UploadFile] = File(...)):
                 status_code=400,
                 detail=f"PDF 檔案沒有任何頁面：{filename}",
             )
+        upload.seek(0)
 
-        validated_files.append((filename, content, page_count))
+        validated_files.append((filename, upload, size, page_count))
 
     saved_files = []
     try:
-        for filename, content, page_count in validated_files:
-            file_path = save_uploaded_file(content, filename)
+        for filename, upload, size, page_count in validated_files:
+            file_path = save_uploaded_file(upload, filename)
             file_id = uploaded_pdf_id(file_path)
             saved_files.append(
-                (file_id, file_path, filename, len(content), page_count)
+                (file_id, file_path, filename, size, page_count)
             )
     except Exception:
         for _, file_path, _, _, _ in saved_files:
@@ -280,11 +286,10 @@ def add_image_watermark(
         )
 
     # 讀取並儲存圖片
-    image_content = image.file.read()
     image_path = OUTPUTS_DIR / f"watermark_{generate_unique_id()}.png"
 
     with open(image_path, "wb") as f:
-        f.write(image_content)
+        shutil.copyfileobj(image.file, f)
 
     # 解析選定頁面
     page_numbers = None
@@ -385,26 +390,12 @@ def get_page_preview(pdf_id: str, page_number: int):
     pdf_path = _get_pdf_path(pdf_id)
 
     try:
-        # 獲取頁面資訊以驗證頁面號
-        pages_info = get_pdf_page_info(pdf_path)
-        if page_number < 1 or page_number > len(pages_info):
-            raise HTTPException(status_code=400, detail=f"頁面號不有效：{page_number}")
-
         # 生成高解析度預覽 (300 DPI)
-        from pdf2image import convert_from_path
-        images = convert_from_path(
-            pdf_path,
-            first_page=page_number,
-            last_page=page_number,
-            dpi=300
-        )
-
-        if not images:
-            raise HTTPException(status_code=500, detail="無法生成預覽")
+        image = render_page(pdf_path, page_number, dpi=300)
 
         # 轉換為 PNG
         img_byte_arr = io.BytesIO()
-        images[0].save(img_byte_arr, format='PNG')
+        image.save(img_byte_arr, format='PNG')
         img_byte_arr.seek(0)
 
         return StreamingResponse(
