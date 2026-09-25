@@ -25,6 +25,8 @@ from pypdf.generic import (
     RectangleObject,
 )
 from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
@@ -1028,3 +1030,20 @@ def test_page_images_are_cacheable_but_private(tmp_path: Path):
         cache_control = response.headers["cache-control"]
         assert "private" in cache_control
         assert "immutable" in cache_control
+
+
+def test_render_page_draws_non_embedded_cjk_text(tmp_path: Path):
+    # 很多中文 PDF 不內嵌字型；Poppler 需要 poppler-data 才能對應這些字元，
+    # 缺少時文字會整個消失，縮圖與轉出的圖片變成空白。
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    source = tmp_path / "cjk.pdf"
+    pdf = canvas.Canvas(str(source), pagesize=(300, 120))
+    pdf.setFont("STSong-Light", 40)
+    pdf.drawString(20, 50, "中文")
+    pdf.showPage()
+    pdf.save()
+
+    histogram = render_page(source, 1, dpi=72).convert("L").histogram()
+    dark_pixels = sum(histogram[:128])
+
+    assert dark_pixels > 200, "中文沒有被渲染出來，請確認已安裝 poppler-data"

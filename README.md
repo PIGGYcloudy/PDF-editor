@@ -84,7 +84,7 @@ docker compose down
 Ubuntu/Debian：
 
 ```bash
-sudo apt-get install poppler-utils fonts-droid-fallback
+sudo apt-get install poppler-utils poppler-data fonts-droid-fallback
 python -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements-dev.txt

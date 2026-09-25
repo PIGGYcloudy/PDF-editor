@@ -8,8 +8,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # 安裝系統依賴（用於 pdf2image 與中文浮水印字型）
+# poppler-data 是 Poppler 渲染未內嵌字型的中日韓文字所需的編碼資料，
+# 使用 --no-install-recommends 時必須明確安裝
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-droid-fallback \
+    poppler-data \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
