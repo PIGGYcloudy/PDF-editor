@@ -38,7 +38,7 @@ docker compose up --build
 啟動後：
 
 - Web UI：<http://localhost:8081>
-- 後端 API：<http://localhost:8000>
+- 後端 API：<http://localhost:8000>（只接受本機連線）
 - OpenAPI 文件：<http://localhost:8000/docs>
 
 停止服務：
@@ -47,7 +47,9 @@ docker compose up --build
 docker compose down
 ```
 
-上傳與產出檔案位於 `backend/uploads/` 與 `backend/outputs/`。這些內容不會被 Git 追蹤，也會被排除在 Docker image 之外。
+後端在容器內以非 root 使用者執行，上傳與產出檔案存放在 Docker volume `uploads` 與 `outputs`（會加上專案名稱前綴，例如 `pdf-editor_uploads`）。若要連同檔案一起刪除，使用 `docker compose down -v`。
+
+本機開發時，檔案位於 `backend/uploads/` 與 `backend/outputs/`；這些內容不會被 Git 追蹤，也會被排除在 Docker image 之外。
 
 ### 檔案保留
 
