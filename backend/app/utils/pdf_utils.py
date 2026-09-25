@@ -2,6 +2,7 @@
 PDF 工具函數
 """
 import io
+import os
 import uuid
 from pathlib import Path
 from typing import BinaryIO, List, Optional, Tuple, Union
@@ -199,8 +200,60 @@ def save_output_pdf(pdf_writer: PdfWriter, prefix: str = "output") -> Path:
     
     with open(file_path, "wb") as f:
         pdf_writer.write(f)
-    
+
     return file_path
+
+
+def uploaded_pdf_id(file_path: Path) -> str:
+    """取出 save_uploaded_file 所產生 `<id>_<原檔名>.pdf` 檔名中的 ID。"""
+    return file_path.name.split("_", 1)[0]
+
+
+def output_pdf_id(file_path: Path) -> str:
+    """取出 save_output_pdf 所產生 `<前綴>_<id>.pdf` 檔名中的 ID。"""
+    return file_path.stem.rsplit("_", 1)[-1]
+
+
+def is_valid_pdf_id(pdf_id: str) -> bool:
+    """ID 必須是標準格式的 UUID，確保不會被當成 glob 或路徑片段解讀。"""
+    try:
+        return str(uuid.UUID(pdf_id)) == pdf_id
+    except ValueError:
+        return False
+
+
+def resolve_pdf_path(pdf_id: str) -> Optional[Path]:
+    """
+    依 ID 找出上傳或處理後的 PDF
+
+    ID 直接編碼在檔名中，因此不需要程序內的索引：服務重啟或以多個
+    worker 執行時都能找到檔案。找到後會更新修改時間，讓仍在使用中的
+    檔案不會被過期清理刪除。
+
+    Args:
+        pdf_id: PDF 檔案 ID
+
+    Returns:
+        檔案路徑；ID 無效或檔案不存在時回傳 None
+    """
+    if not is_valid_pdf_id(pdf_id):
+        return None
+
+    candidates = [
+        *UPLOADS_DIR.glob(f"{pdf_id}_*"),
+        *OUTPUTS_DIR.glob(f"*_{pdf_id}.pdf"),
+    ]
+    for file_path in candidates:
+        # 上傳檔保留使用者的副檔名大小寫，例如 `SCAN.PDF`。
+        if file_path.suffix.lower() != ".pdf" or not file_path.is_file():
+            continue
+        try:
+            os.utime(file_path)
+        except OSError:
+            pass
+        return file_path
+
+    return None
 
 
 def copy_pdf(source_path: Path, new_filename: str) -> Path:

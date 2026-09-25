@@ -1,27 +1,24 @@
 """
 格式轉換路由
 """
-from pathlib import Path
-from typing import Optional
-
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
-from app.config import OUTPUTS_DIR
 from app.models.schemas import ConvertToImageRequest, ConvertToImageResponse
 from app.services.convert_service import ConvertService
+from app.utils.pdf_utils import resolve_pdf_path
 
+# 與 PDF 路由相同，使用同步 `def` 讓 Poppler 渲染在 threadpool 執行。
 router = APIRouter(prefix="/convert", tags=["轉換"])
 
 
 @router.post("/to-image", response_model=ConvertToImageResponse)
-async def convert_to_image(request: ConvertToImageRequest):
+def convert_to_image(request: ConvertToImageRequest):
     """將 PDF 轉換為圖片"""
-    # 從 pdf.py 導入 pdf_files
-    from app.routers.pdf import pdf_files
-
-    if request.pdfId not in pdf_files:
-        raise HTTPException(status_code=404, detail="PDF 檔案不存在")
+    pdf_path = resolve_pdf_path(request.pdfId)
+    if pdf_path is None:
+        raise HTTPException(status_code=404, detail="PDF 檔案不存在或已過期")
 
     # 驗證格式
     if request.format.lower() not in ["jpg", "png"]:
@@ -40,7 +37,7 @@ async def convert_to_image(request: ConvertToImageRequest):
     try:
         # 轉換為圖片
         zip_path, image_count = ConvertService.convert_to_images(
-            pdf_files[request.pdfId],
+            pdf_path,
             request.format.lower(),
             request.dpi,
             request.selectedPageNumbers if request.pages == "selected" else None
@@ -60,15 +57,16 @@ async def convert_to_image(request: ConvertToImageRequest):
 
 
 @router.get("/download/{filename}")
-async def download_file(filename: str):
-    """下載處理後的檔案"""
-    file_path = OUTPUTS_DIR / filename
+def download_file(filename: str):
+    """下載轉換產生的 ZIP，傳送完成後即從伺服器刪除"""
+    zip_path = ConvertService.resolve_zip_path(filename)
+    if zip_path is None:
+        raise HTTPException(status_code=404, detail="檔案不存在或已過期")
 
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="檔案不存在")
-
+    # 若傳送中斷導致沒有刪除，仍會由過期清理處理。
     return FileResponse(
-        path=str(file_path),
+        path=zip_path,
         filename=filename,
-        media_type="application/octet-stream"
+        media_type="application/zip",
+        background=BackgroundTask(zip_path.unlink, missing_ok=True),
     )

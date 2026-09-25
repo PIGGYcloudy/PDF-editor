@@ -2,6 +2,7 @@
 PDF 格式轉換服務
 """
 import io
+import re
 import shutil
 import zipfile
 from pathlib import Path
@@ -14,8 +15,31 @@ from pdf2image import convert_from_path
 from app.config import OUTPUTS_DIR
 from app.utils.pdf_utils import generate_unique_id, validate_page_numbers
 
+ZIP_FILENAME_PATTERN = re.compile(
+    r"pdf_images_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.zip"
+)
+
+
 class ConvertService:
     """PDF 格式轉換服務"""
+
+    @staticmethod
+    def resolve_zip_path(filename: str) -> Optional[Path]:
+        """
+        找出 convert_to_images 產生的 ZIP
+
+        只接受轉換產生的檔名格式，避免下載端點取得 outputs 中的其他檔案。
+
+        Args:
+            filename: ZIP 檔案名稱
+
+        Returns:
+            ZIP 路徑；檔名不符或檔案不存在時回傳 None
+        """
+        if not ZIP_FILENAME_PATTERN.fullmatch(filename):
+            return None
+        zip_path = OUTPUTS_DIR / filename
+        return zip_path if zip_path.is_file() else None
 
     @staticmethod
     def convert_to_images(

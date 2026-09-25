@@ -1,8 +1,14 @@
+import inspect
+import os
+import time
+import uuid
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from PIL import Image
 from pdf2image import convert_from_path
@@ -28,10 +34,13 @@ from app.models.schemas import (
     DeletePagesRequest,
     WatermarkTextRequest,
 )
+from app.routers import convert as convert_router
 from app.routers import pdf as pdf_router
+from app.services.cleanup_service import CleanupService
 from app.services.compress_service import CompressService
 from app.services.pdf_service import PDFService
 from app.services.watermark_service import WatermarkService
+from app.utils.pdf_utils import output_pdf_id, resolve_pdf_path
 
 
 def create_sample_pdf(path: Path, include_image: bool = False) -> Path:
@@ -634,7 +643,6 @@ def test_upload_rejects_invalid_batch_without_partial_commit(
 
     assert response.status_code == 400
     assert "損壞" in response.json()["detail"]
-    assert pdf_router.pdf_files == {}
     assert list(isolated_storage["uploads"].iterdir()) == []
 
 
@@ -653,6 +661,158 @@ def test_upload_sanitizes_filename(tmp_path: Path, isolated_storage):
     )
 
     assert response.status_code == 200
-    uploaded_path = next(iter(pdf_router.pdf_files.values()))
+    uploaded_path = resolve_pdf_path(response.json()["files"][0]["id"])
     assert uploaded_path.parent == isolated_storage["uploads"]
     assert uploaded_path.name.endswith("_safe.pdf")
+
+
+def upload_sample(
+    client: TestClient,
+    source: Path,
+    filename: str = "sample.pdf",
+) -> str:
+    response = client.post(
+        "/api/pdf/upload",
+        files=[("files", (filename, source.read_bytes(), "application/pdf"))],
+    )
+    assert response.status_code == 200
+    return response.json()["files"][0]["id"]
+
+
+def test_api_routes_run_blocking_work_in_threadpool():
+    # async 路由會在 event loop 上執行同步的 PDF 處理，讓其他請求一起等待。
+    api_routes = [
+        route
+        for route in (*pdf_router.router.routes, *convert_router.router.routes)
+        if isinstance(route, APIRoute)
+    ]
+
+    assert api_routes
+    assert [
+        route.path
+        for route in api_routes
+        if inspect.iscoroutinefunction(route.endpoint)
+    ] == []
+
+
+def test_pdf_ids_resolve_from_storage_without_process_state(tmp_path: Path):
+    # 模擬服務重啟：輸出檔已在磁碟上，但這個程序從未回傳過它的 ID。
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    output_path = PDFService.delete_pages(source, [1])
+    client = TestClient(app)
+
+    response = client.get(f"/api/pdf/pages/{output_pdf_id(output_path)}")
+
+    assert response.status_code == 200
+    assert response.json()["pageCount"] == 1
+
+
+def test_uploaded_pdf_with_uppercase_extension_is_resolvable(tmp_path: Path):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source, "SCAN.PDF")
+
+    response = client.get(f"/api/pdf/download/{pdf_id}")
+
+    assert response.status_code == 200
+    assert response.content == source.read_bytes()
+
+
+def test_unknown_or_malformed_pdf_ids_return_404(tmp_path: Path):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    for invalid_id in ("*", "not-a-uuid", pdf_id.upper(), str(uuid.uuid4())):
+        response = client.get(f"/api/pdf/pages/{invalid_id}")
+        assert response.status_code == 404, invalid_id
+
+
+def test_delete_pdf_removes_file_and_repeated_delete_returns_404(
+    tmp_path: Path,
+    isolated_storage,
+):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    assert client.delete(f"/api/pdf/{pdf_id}").status_code == 200
+    assert list(isolated_storage["uploads"].iterdir()) == []
+    assert client.delete(f"/api/pdf/{pdf_id}").status_code == 404
+
+
+def test_resolving_pdf_extends_its_retention(tmp_path: Path, isolated_storage):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    output_path = PDFService.delete_pages(source, [1])
+    week_ago = time.time() - 7 * 24 * 60 * 60
+    os.utime(output_path, (week_ago, week_ago))
+
+    assert resolve_pdf_path(output_pdf_id(output_path)) == output_path
+    assert CleanupService.remove_expired(
+        [isolated_storage["outputs"]],
+        60 * 60,
+    ) == 0
+    assert output_path.exists()
+
+
+def test_cleanup_removes_only_expired_entries(tmp_path: Path):
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    now = time.time()
+    expired_file = storage / "old.pdf"
+    expired_dir = storage / "images_old"
+    fresh_file = storage / "new.pdf"
+    hidden_file = storage / ".gitkeep"
+    expired_dir.mkdir()
+    (expired_dir / "page_0001.png").write_bytes(b"png")
+    for path in (expired_file, fresh_file, hidden_file):
+        path.write_bytes(b"data")
+    for path in (expired_file, expired_dir, hidden_file):
+        os.utime(path, (now - 2 * 60 * 60, now - 2 * 60 * 60))
+
+    removed = CleanupService.remove_expired(
+        [storage, tmp_path / "missing"],
+        60 * 60,
+        now=now,
+    )
+
+    assert removed == 2
+    assert sorted(path.name for path in storage.iterdir()) == [
+        ".gitkeep",
+        "new.pdf",
+    ]
+
+
+def test_converted_zip_is_deleted_after_download(
+    tmp_path: Path,
+    isolated_storage,
+):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    convert = client.post(
+        "/api/convert/to-image",
+        json={"pdfId": pdf_id, "format": "png", "dpi": 72},
+    )
+    assert convert.status_code == 200
+    zip_url = convert.json()["zipUrl"]
+
+    download = client.get(zip_url)
+
+    assert download.status_code == 200
+    with zipfile.ZipFile(BytesIO(download.content)) as archive:
+        assert sorted(archive.namelist()) == ["page_0001.png", "page_0002.png"]
+    assert list(isolated_storage["outputs"].iterdir()) == []
+    assert client.get(zip_url).status_code == 404
+
+
+def test_convert_download_only_serves_converted_zips(tmp_path: Path):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    output_path = PDFService.delete_pages(source, [1])
+    client = TestClient(app)
+
+    response = client.get(f"/api/convert/download/{output_path.name}")
+
+    assert response.status_code == 404
+    assert output_path.exists()

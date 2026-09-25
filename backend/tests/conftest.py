@@ -18,16 +18,15 @@ def isolated_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     outputs_dir.mkdir()
 
     from app.routers import pdf as pdf_router
+    from app.services import convert_service
     from app.utils import pdf_utils
 
     monkeypatch.setattr(pdf_utils, "UPLOADS_DIR", uploads_dir)
     monkeypatch.setattr(pdf_utils, "OUTPUTS_DIR", outputs_dir)
     monkeypatch.setattr(pdf_router, "OUTPUTS_DIR", outputs_dir)
-    pdf_router.pdf_files.clear()
+    monkeypatch.setattr(convert_service, "OUTPUTS_DIR", outputs_dir)
 
-    yield {
+    return {
         "uploads": uploads_dir,
         "outputs": outputs_dir,
     }
-
-    pdf_router.pdf_files.clear()

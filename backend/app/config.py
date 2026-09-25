@@ -23,6 +23,14 @@ OUTPUTS_DIR.mkdir(exist_ok=True)
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 ALLOWED_FILE_TYPES = ["application/pdf"]
 
+# 檔案保留設定：閒置超過保留時間的上傳與輸出檔會被自動刪除，設為 0 可停用
+FILE_RETENTION_HOURS = float(os.getenv("FILE_RETENTION_HOURS", "24"))
+CLEANUP_INTERVAL_MINUTES = float(os.getenv("CLEANUP_INTERVAL_MINUTES", "30"))
+if FILE_RETENTION_HOURS < 0:
+    raise ValueError("FILE_RETENTION_HOURS 不可小於 0")
+if CLEANUP_INTERVAL_MINUTES <= 0:
+    raise ValueError("CLEANUP_INTERVAL_MINUTES 必須大於 0")
+
 # 圖片設定
 THUMBNAIL_SIZES = {
     "small": (100, 100),

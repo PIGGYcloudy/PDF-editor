@@ -11,6 +11,8 @@ services:
       - ./backend/outputs:/app/outputs
     environment:
       - PYTHONUNBUFFERED=1
+      - FILE_RETENTION_HOURS=24
+      - CLEANUP_INTERVAL_MINUTES=30
     networks:
       - pdf-editor-network
     restart: unless-stopped
