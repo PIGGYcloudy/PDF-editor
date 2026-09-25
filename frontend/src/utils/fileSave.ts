@@ -57,6 +57,7 @@ export function normalizeDownloadFilename(
     : `.${extension}`;
   const filenameOnly = value.trim().split(/[\\/]/).pop() ?? '';
   const safeName = filenameOnly
+    // eslint-disable-next-line no-control-regex -- 檔名中的控制字元必須替換掉
     .replace(/[\u0000-\u001f\u007f<>:"|?*]/g, '_')
     .replace(/[. ]+$/g, '')
     .trim();

@@ -16,17 +16,6 @@ WatermarkPosition = Literal[
 PageSelection = Literal["all", "selected"]
 
 
-# 通用回應模型
-class SuccessResponse(BaseModel):
-    success: bool = True
-    data: Optional[dict] = None
-
-
-class ErrorResponse(BaseModel):
-    success: bool = False
-    error: dict
-
-
 # PDF 檔案模型
 class PDFFile(BaseModel):
     id: str
@@ -113,7 +102,11 @@ class WatermarkTextRequest(BaseModel):
     )
     fontSize: int = Field(48, ge=8, le=200, description="字體大小 (pt)")
     fontFamily: str = Field("Helvetica", min_length=1, description="字體家族")
-    color: str = Field("#FF0000", description="顏色 (hex)")
+    color: str = Field(
+        "#FF0000",
+        pattern=r"^#[0-9A-Fa-f]{6}$",
+        description="顏色 (hex，例如 #FF0000)",
+    )
     opacity: float = Field(0.3, ge=0, le=1, description="透明度 (0-1)")
     rotation: int = Field(45, ge=0, le=360, description="旋轉角度 (度)")
     pages: PageSelection = Field("all", description="all 或 selected")

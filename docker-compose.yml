@@ -5,12 +5,27 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8000:7999"
+      # 只綁定本機，瀏覽器透過前端的 /api 代理存取；需要時仍可在本機開啟 /docs
+      - "127.0.0.1:8000:7999"
     volumes:
-      - ./backend/uploads:/app/uploads
-      - ./backend/outputs:/app/outputs
+      # 使用具名 volume，讓以非 root 身分執行的後端擁有寫入權限
+      - uploads:/app/uploads
+      - outputs:/app/outputs
     environment:
-      - PYTHONUNBUFFERED=1
+      - FILE_RETENTION_HOURS=24
+      - CLEANUP_INTERVAL_MINUTES=30
+      # 同時渲染的頁數上限，預設為 CPU 核心數（最多 4）
+      # - MAX_CONCURRENT_RENDERS=2
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:7999/health', timeout=3)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - pdf-editor-network
     restart: unless-stopped
@@ -23,10 +38,15 @@ services:
     ports:
       - "8081:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - pdf-editor-network
     restart: unless-stopped
+
+volumes:
+  uploads:
+  outputs:
 
 networks:
   pdf-editor-network:

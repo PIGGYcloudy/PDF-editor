@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   Alert,
   Button,
@@ -22,8 +22,12 @@ interface SaveFileDialogProps {
   onSave: (filename: string) => void;
 }
 
-function SaveFileDialog({
-  open,
+type SaveFileFormProps = Omit<SaveFileDialogProps, 'open'>;
+
+/**
+ * Dialog 關閉動畫結束後會卸載內容，因此每次開啟都會以建議檔名重新開始。
+ */
+function SaveFileForm({
   suggestedName,
   extension,
   nativeSaveAvailable,
@@ -31,26 +35,15 @@ function SaveFileDialog({
   loading,
   onCancel,
   onSave,
-}: SaveFileDialogProps) {
+}: SaveFileFormProps) {
   const [filename, setFilename] = useState(suggestedName);
-
-  useEffect(() => {
-    if (open) {
-      setFilename(suggestedName);
-    }
-  }, [open, suggestedName]);
 
   const handleSave = () => {
     onSave(normalizeDownloadFilename(filename, extension, 'download'));
   };
 
   return (
-    <Dialog
-      open={open}
-      onClose={loading ? undefined : onCancel}
-      fullWidth
-      maxWidth="xs"
-    >
+    <>
       <DialogTitle>儲存檔案</DialogTitle>
       <DialogContent>
         {error && (
@@ -85,6 +78,19 @@ function SaveFileDialog({
           {nativeSaveAvailable ? '選擇位置並儲存' : '下載'}
         </Button>
       </DialogActions>
+    </>
+  );
+}
+
+function SaveFileDialog({ open, ...formProps }: SaveFileDialogProps) {
+  return (
+    <Dialog
+      open={open}
+      onClose={formProps.loading ? undefined : formProps.onCancel}
+      fullWidth
+      maxWidth="xs"
+    >
+      <SaveFileForm key={formProps.suggestedName} {...formProps} />
     </Dialog>
   );
 }

@@ -1,0 +1,7 @@
+target-version = "py311"
+
+[lint]
+# 聚焦在可能的錯誤（語法、未使用的名稱、常見陷阱），不做純風格調整
+select = ["E4", "E7", "E9", "F", "B"]
+# FastAPI 以 File(...)、Form(...) 等預設值宣告參數，是框架的標準寫法
+ignore = ["B008"]

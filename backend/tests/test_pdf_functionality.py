@@ -1,8 +1,15 @@
+import inspect
+import os
+import threading
+import time
+import uuid
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from PIL import Image
 from pdf2image import convert_from_path
@@ -18,6 +25,8 @@ from pypdf.generic import (
     RectangleObject,
 )
 from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
@@ -28,10 +37,14 @@ from app.models.schemas import (
     DeletePagesRequest,
     WatermarkTextRequest,
 )
+from app.routers import convert as convert_router
 from app.routers import pdf as pdf_router
+from app.services.cleanup_service import CleanupService
 from app.services.compress_service import CompressService
 from app.services.pdf_service import PDFService
 from app.services.watermark_service import WatermarkService
+from app.utils import pdf_utils
+from app.utils.pdf_utils import output_pdf_id, render_page, resolve_pdf_path
 
 
 def create_sample_pdf(path: Path, include_image: bool = False) -> Path:
@@ -634,7 +647,6 @@ def test_upload_rejects_invalid_batch_without_partial_commit(
 
     assert response.status_code == 400
     assert "損壞" in response.json()["detail"]
-    assert pdf_router.pdf_files == {}
     assert list(isolated_storage["uploads"].iterdir()) == []
 
 
@@ -653,6 +665,385 @@ def test_upload_sanitizes_filename(tmp_path: Path, isolated_storage):
     )
 
     assert response.status_code == 200
-    uploaded_path = next(iter(pdf_router.pdf_files.values()))
+    uploaded_path = resolve_pdf_path(response.json()["files"][0]["id"])
     assert uploaded_path.parent == isolated_storage["uploads"]
     assert uploaded_path.name.endswith("_safe.pdf")
+
+
+def upload_sample(
+    client: TestClient,
+    source: Path,
+    filename: str = "sample.pdf",
+) -> str:
+    response = client.post(
+        "/api/pdf/upload",
+        files=[("files", (filename, source.read_bytes(), "application/pdf"))],
+    )
+    assert response.status_code == 200
+    return response.json()["files"][0]["id"]
+
+
+def test_api_routes_run_blocking_work_in_threadpool():
+    # async 路由會在 event loop 上執行同步的 PDF 處理，讓其他請求一起等待。
+    api_routes = [
+        route
+        for route in (*pdf_router.router.routes, *convert_router.router.routes)
+        if isinstance(route, APIRoute)
+    ]
+
+    assert api_routes
+    assert [
+        route.path
+        for route in api_routes
+        if inspect.iscoroutinefunction(route.endpoint)
+    ] == []
+
+
+def test_pdf_ids_resolve_from_storage_without_process_state(tmp_path: Path):
+    # 模擬服務重啟：輸出檔已在磁碟上，但這個程序從未回傳過它的 ID。
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    output_path = PDFService.delete_pages(source, [1])
+    client = TestClient(app)
+
+    response = client.get(f"/api/pdf/pages/{output_pdf_id(output_path)}")
+
+    assert response.status_code == 200
+    assert response.json()["pageCount"] == 1
+
+
+def test_uploaded_pdf_with_uppercase_extension_is_resolvable(tmp_path: Path):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source, "SCAN.PDF")
+
+    response = client.get(f"/api/pdf/download/{pdf_id}")
+
+    assert response.status_code == 200
+    assert response.content == source.read_bytes()
+
+
+def test_unknown_or_malformed_pdf_ids_return_404(tmp_path: Path):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    for invalid_id in ("*", "not-a-uuid", pdf_id.upper(), str(uuid.uuid4())):
+        response = client.get(f"/api/pdf/pages/{invalid_id}")
+        assert response.status_code == 404, invalid_id
+
+
+def test_delete_pdf_removes_file_and_repeated_delete_returns_404(
+    tmp_path: Path,
+    isolated_storage,
+):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    assert client.delete(f"/api/pdf/{pdf_id}").status_code == 200
+    assert list(isolated_storage["uploads"].iterdir()) == []
+    assert client.delete(f"/api/pdf/{pdf_id}").status_code == 404
+
+
+def test_resolving_pdf_extends_its_retention(tmp_path: Path, isolated_storage):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    output_path = PDFService.delete_pages(source, [1])
+    week_ago = time.time() - 7 * 24 * 60 * 60
+    os.utime(output_path, (week_ago, week_ago))
+
+    assert resolve_pdf_path(output_pdf_id(output_path)) == output_path
+    assert CleanupService.remove_expired(
+        [isolated_storage["outputs"]],
+        60 * 60,
+    ) == 0
+    assert output_path.exists()
+
+
+def test_cleanup_removes_only_expired_entries(tmp_path: Path):
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    now = time.time()
+    expired_file = storage / "old.pdf"
+    expired_dir = storage / "images_old"
+    fresh_file = storage / "new.pdf"
+    hidden_file = storage / ".gitkeep"
+    expired_dir.mkdir()
+    (expired_dir / "page_0001.png").write_bytes(b"png")
+    for path in (expired_file, fresh_file, hidden_file):
+        path.write_bytes(b"data")
+    for path in (expired_file, expired_dir, hidden_file):
+        os.utime(path, (now - 2 * 60 * 60, now - 2 * 60 * 60))
+
+    removed = CleanupService.remove_expired(
+        [storage, tmp_path / "missing"],
+        60 * 60,
+        now=now,
+    )
+
+    assert removed == 2
+    assert sorted(path.name for path in storage.iterdir()) == [
+        ".gitkeep",
+        "new.pdf",
+    ]
+
+
+def test_converted_zip_is_deleted_after_download(
+    tmp_path: Path,
+    isolated_storage,
+):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    convert = client.post(
+        "/api/convert/to-image",
+        json={"pdfId": pdf_id, "format": "png", "dpi": 72},
+    )
+    assert convert.status_code == 200
+    zip_url = convert.json()["zipUrl"]
+
+    download = client.get(zip_url)
+
+    assert download.status_code == 200
+    with zipfile.ZipFile(BytesIO(download.content)) as archive:
+        assert sorted(archive.namelist()) == ["page_0001.png", "page_0002.png"]
+    assert list(isolated_storage["outputs"].iterdir()) == []
+    assert client.get(zip_url).status_code == 404
+
+
+def test_convert_download_only_serves_converted_zips(tmp_path: Path):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    output_path = PDFService.delete_pages(source, [1])
+    client = TestClient(app)
+
+    response = client.get(f"/api/convert/download/{output_path.name}")
+
+    assert response.status_code == 404
+    assert output_path.exists()
+
+
+def test_upload_streams_large_files_intact(tmp_path: Path):
+    # 超過 1MB 的上傳會由 Starlette 寫入暫存檔，確認從暫存檔驗證與複製的結果。
+    source = create_sample_pdf(tmp_path / "source.pdf", include_image=True)
+    source_bytes = source.read_bytes()
+    assert len(source_bytes) > 1024 * 1024
+    client = TestClient(app)
+
+    upload = client.post(
+        "/api/pdf/upload",
+        files=[("files", ("large.pdf", source_bytes, "application/pdf"))],
+    )
+
+    assert upload.status_code == 200
+    uploaded = upload.json()["files"][0]
+    assert uploaded["size"] == len(source_bytes)
+    assert uploaded["pageCount"] == 2
+    download = client.get(f"/api/pdf/download/{uploaded['id']}")
+    assert download.content == source_bytes
+
+
+def test_render_page_caps_resolution_of_oversized_pages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # 降低上限，用 A4 代替真正的超大頁面；A4 在 300 DPI 約 870 萬像素。
+    monkeypatch.setattr(pdf_utils, "MAX_RENDER_PIXELS", 1_000_000)
+    source = create_sample_pdf(tmp_path / "source.pdf")
+
+    capped_image = render_page(source, 1, dpi=300)
+    uncapped_image = render_page(source, 1, dpi=72)
+
+    assert capped_image.width * capped_image.height <= 1_000_000
+    # 降低 DPI 時維持頁面比例，而且只降到剛好符合上限。
+    assert capped_image.width * capped_image.height > 900_000
+    assert abs(capped_image.height / capped_image.width - A4[1] / A4[0]) < 0.01
+    # 未超過上限時維持原本的 DPI。
+    assert abs(uncapped_image.width - A4[0]) <= 1
+    assert abs(uncapped_image.height - A4[1]) <= 1
+
+
+def test_render_page_rejects_invalid_page_numbers(tmp_path: Path):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    with pytest.raises(ValueError, match="無效的頁面號碼"):
+        render_page(source, 3, dpi=72)
+    assert client.get(f"/api/pdf/thumbnail/{pdf_id}/page/3").status_code == 400
+    assert client.get(f"/api/pdf/preview/{pdf_id}/0").status_code == 400
+
+
+def test_render_page_limits_concurrent_renders(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    lock = threading.Lock()
+    active = 0
+    max_active = 0
+
+    def slow_convert(pdf_path, **kwargs):
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.05)
+        with lock:
+            active -= 1
+        return [Image.new("RGB", (10, 10), "white")]
+
+    monkeypatch.setattr(pdf_utils, "convert_from_path", slow_convert)
+    monkeypatch.setattr(pdf_utils, "_render_slots", threading.BoundedSemaphore(2))
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        images = list(executor.map(
+            lambda _: render_page(source, 1, dpi=72),
+            range(6),
+        ))
+
+    assert len(images) == 6
+    assert max_active <= 2
+
+
+def test_all_page_rendering_goes_through_render_page(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # 若有路由自行呼叫 pdf2image，就會繞過同時渲染數量與像素上限。
+    rendered_dpis = []
+
+    def fake_convert(pdf_path, **kwargs):
+        rendered_dpis.append(kwargs["dpi"])
+        return [Image.new("RGB", (10, 10), "white")]
+
+    monkeypatch.setattr(pdf_utils, "convert_from_path", fake_convert)
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    assert client.get(f"/api/pdf/thumbnail/{pdf_id}/page/1").status_code == 200
+    assert client.get(f"/api/pdf/preview/{pdf_id}/1").status_code == 200
+    convert = client.post(
+        "/api/convert/to-image",
+        json={"pdfId": pdf_id, "format": "jpg", "dpi": 72},
+    )
+
+    assert convert.status_code == 200
+    assert rendered_dpis == [100, 300, 72, 72]
+
+
+def test_upload_limit_applies_to_combined_request_size(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    isolated_storage,
+):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    pdf_bytes = source.read_bytes()
+    monkeypatch.setattr(pdf_router, "MAX_UPLOAD_SIZE", len(pdf_bytes) + 1)
+    client = TestClient(app)
+
+    single = client.post(
+        "/api/pdf/upload",
+        files=[("files", ("one.pdf", pdf_bytes, "application/pdf"))],
+    )
+    batch = client.post(
+        "/api/pdf/upload",
+        files=[
+            ("files", ("one.pdf", pdf_bytes, "application/pdf")),
+            ("files", ("two.pdf", pdf_bytes, "application/pdf")),
+        ],
+    )
+
+    assert single.status_code == 200
+    assert batch.status_code == 413
+    assert "合計" in batch.json()["detail"]
+    # 超過上限的批次不會留下任何檔案。
+    assert len(list(isolated_storage["uploads"].iterdir())) == 1
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [
+        (RuntimeError("/srv/secret/path failed"), 500),
+        (OSError("[Errno 2] No such file: '/srv/secret/path'"), 400),
+    ],
+)
+def test_processing_errors_do_not_leak_internal_details(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+    status_code: int,
+):
+    def failing_compress(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(CompressService, "compress", failing_compress)
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    response = client.post("/api/pdf/compress", json={"pdfId": pdf_id})
+
+    assert response.status_code == status_code
+    assert "壓縮 PDF失敗" in response.json()["detail"]
+    assert "/srv/secret" not in response.json()["detail"]
+
+
+def test_validation_errors_are_still_shown_to_users(tmp_path: Path):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    response = client.post(
+        "/api/pdf/delete-pages",
+        json={"pdfId": pdf_id, "pageNumbers": [1, 2]},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "不能刪除所有頁面"
+
+
+@pytest.mark.parametrize("color", ["red", "#FFF", "#GG0000", "FF0000"])
+def test_watermark_color_must_be_six_digit_hex(color: str):
+    with pytest.raises(ValidationError):
+        WatermarkTextRequest(pdfId="pdf-id", text="watermark", color=color)
+
+    assert WatermarkTextRequest(
+        pdfId="pdf-id",
+        text="watermark",
+        color="#00aa7F",
+    ).color == "#00aa7F"
+
+
+def test_page_images_are_cacheable_but_private(tmp_path: Path):
+    # 每個版本的 ID 都不會再改變，縮圖與預覽可以長期快取。
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    for url in (
+        f"/api/pdf/thumbnail/{pdf_id}/page/1",
+        f"/api/pdf/preview/{pdf_id}/1",
+    ):
+        response = client.get(url)
+        assert response.status_code == 200
+        cache_control = response.headers["cache-control"]
+        assert "private" in cache_control
+        assert "immutable" in cache_control
+
+
+def test_render_page_draws_non_embedded_cjk_text(tmp_path: Path):
+    # 很多中文 PDF 不內嵌字型；Poppler 需要 poppler-data 才能對應這些字元，
+    # 缺少時文字會整個消失，縮圖與轉出的圖片變成空白。
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    source = tmp_path / "cjk.pdf"
+    pdf = canvas.Canvas(str(source), pagesize=(300, 120))
+    pdf.setFont("STSong-Light", 40)
+    pdf.drawString(20, 50, "中文")
+    pdf.showPage()
+    pdf.save()
+
+    histogram = render_page(source, 1, dpi=72).convert("L").histogram()
+    dark_pixels = sum(histogram[:128])
+
+    assert dark_pixels > 200, "中文沒有被渲染出來，請確認已安裝 poppler-data"

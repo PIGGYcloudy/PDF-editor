@@ -2,15 +2,16 @@
 PDF 處理路由
 """
 import io
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi.responses import FileResponse, Response
 from pypdf import PdfReader
 
-from app.config import UPLOADS_DIR, OUTPUTS_DIR, MAX_FILE_SIZE, PAPER_SIZES, CORS_ORIGINS
+from app.config import OUTPUTS_DIR, MAX_UPLOAD_MB, MAX_UPLOAD_SIZE
 from app.models.schemas import (
     DeletePagesRequest,
     DeletePagesResponse,
@@ -24,31 +25,46 @@ from app.models.schemas import (
     UploadResponse,
     PDFFile,
 )
+from app.routers.errors import processing_errors
 from app.utils.pdf_utils import (
     generate_unique_id,
     get_pdf_page_count,
-    get_pdf_page_info,
     generate_thumbnail,
+    output_pdf_id,
+    render_page,
+    resolve_pdf_path,
     save_uploaded_file,
+    uploaded_pdf_id,
 )
 from app.services.pdf_service import PDFService
 from app.services.compress_service import CompressService
 from app.services.watermark_service import WatermarkService
 
+# 路由刻意使用同步 `def`：PDF 解析與 Poppler 渲染都是阻塞操作，FastAPI 會把
+# 同步路由放到 threadpool 執行，避免卡住 event loop 讓其他請求一起等待。
 router = APIRouter(prefix="/pdf", tags=["PDF"])
 
+# 每次編輯都會產生新的 ID，同一個 ID 的頁面圖片不會改變，可以讓瀏覽器長期快取。
+# 使用 private 避免共用快取保存使用者文件的內容。
+IMAGE_CACHE_HEADERS = {"Cache-Control": "private, max-age=86400, immutable"}
 
-# 建立 PDF 檔案 ID 到路徑的映射
-pdf_files: dict[str, Path] = {}
+
+def _get_pdf_path(pdf_id: str) -> Path:
+    """取得 PDF 路徑，找不到時回傳 404。"""
+    pdf_path = resolve_pdf_path(pdf_id)
+    if pdf_path is None:
+        raise HTTPException(status_code=404, detail="PDF 檔案不存在或已過期")
+    return pdf_path
 
 
 @router.post("/upload", response_model=UploadResponse)
-async def upload_pdf(files: List[UploadFile] = File(...)):
+def upload_pdf(files: List[UploadFile] = File(...)):
     """上傳 PDF 檔案"""
     if not files:
         raise HTTPException(status_code=400, detail="沒有上傳任何檔案")
 
     validated_files = []
+    total_size = 0
 
     for file in files:
         filename = file.filename or "document.pdf"
@@ -60,48 +76,53 @@ async def upload_pdf(files: List[UploadFile] = File(...)):
                 detail=f"檔案類型不支援：{filename} (需要 PDF 格式)"
             )
 
-        # 讀取檔案內容
-        content = await file.read()
+        # Starlette 已把上傳內容暫存（超過 1MB 會寫到暫存檔），直接從暫存檔
+        # 驗證與複製，不把整份 PDF 讀進記憶體。
+        upload = file.file
+        upload.seek(0, os.SEEK_END)
+        size = upload.tell()
+        upload.seek(0)
 
-        # 檢查檔案大小
-        if len(content) > MAX_FILE_SIZE:
+        # 檢查大小：與請求大小限制一致，以單次上傳的合計大小計算。
+        total_size += size
+        if total_size > MAX_UPLOAD_SIZE:
             raise HTTPException(
                 status_code=413,
-                detail=f"檔案超過大小限制：{filename} (最大 100MB)"
+                detail=f"檔案太大：單次上傳合計最多 {MAX_UPLOAD_MB}MB"
             )
 
-        # 所有檔案先在記憶體中驗證，避免批次上傳中途失敗留下半套資料。
+        # 所有檔案先完成驗證再寫入，避免批次上傳中途失敗留下半套資料。
         try:
-            page_count = len(PdfReader(io.BytesIO(content)).pages)
-        except Exception:
+            page_count = len(PdfReader(upload).pages)
+        except Exception as error:
             raise HTTPException(
                 status_code=400,
                 detail=f"PDF 檔案損壞或格式無法解析：{filename}",
-            )
+            ) from error
         if page_count < 1:
             raise HTTPException(
                 status_code=400,
                 detail=f"PDF 檔案沒有任何頁面：{filename}",
             )
+        upload.seek(0)
 
-        validated_files.append((filename, content, page_count))
+        validated_files.append((filename, upload, size, page_count))
 
     saved_files = []
     try:
-        for filename, content, page_count in validated_files:
-            file_path = save_uploaded_file(content, filename)
-            file_id = file_path.stem.split("_")[0]
+        for filename, upload, size, page_count in validated_files:
+            file_path = save_uploaded_file(upload, filename)
+            file_id = uploaded_pdf_id(file_path)
             saved_files.append(
-                (file_id, file_path, filename, len(content), page_count)
+                (file_id, file_path, filename, size, page_count)
             )
-    except Exception:
+    except Exception as error:
         for _, file_path, _, _, _ in saved_files:
             file_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail="PDF 檔案儲存失敗")
+        raise HTTPException(status_code=500, detail="PDF 檔案儲存失敗") from error
 
     uploaded_files = []
-    for file_id, file_path, filename, size, page_count in saved_files:
-        pdf_files[file_id] = file_path
+    for file_id, _, filename, size, page_count in saved_files:
         uploaded_files.append(PDFFile(
             id=file_id,
             name=filename,
@@ -114,13 +135,11 @@ async def upload_pdf(files: List[UploadFile] = File(...)):
 
 
 @router.get("/pages/{pdf_id}", response_model=PagesResponse)
-async def get_pages(pdf_id: str, thumbnail_size: str = "medium"):
+def get_pages(pdf_id: str, thumbnail_size: str = "medium"):
     """獲取 PDF 頁面資訊"""
-    if pdf_id not in pdf_files:
-        raise HTTPException(status_code=404, detail="PDF 檔案不存在")
-
-    pdf_path = pdf_files[pdf_id]
-    pages_info = PDFService.get_page_info(pdf_path)
+    pdf_path = _get_pdf_path(pdf_id)
+    with processing_errors("讀取頁面資訊"):
+        pages_info = PDFService.get_page_info(pdf_path)
 
     # 添加縮圖 URL
     for page in pages_info:
@@ -134,109 +153,72 @@ async def get_pages(pdf_id: str, thumbnail_size: str = "medium"):
 
 
 @router.post("/delete-pages", response_model=DeletePagesResponse)
-async def delete_pages(request: DeletePagesRequest):
+def delete_pages(request: DeletePagesRequest):
     """刪除指定的頁面"""
-    if request.pdfId not in pdf_files:
-        raise HTTPException(status_code=404, detail="PDF 檔案不存在")
+    pdf_path = _get_pdf_path(request.pdfId)
 
-    try:
+    with processing_errors("刪除頁面"):
         new_path = PDFService.delete_pages(
-            pdf_files[request.pdfId],
+            pdf_path,
             request.pageNumbers
         )
 
-        # 獲取新檔案 ID
-        new_id = new_path.stem.split("_")[1]  # 提取 UUID
-
-        # 儲存映射
-        pdf_files[new_id] = new_path
-
-        # 獲取剩餘頁面數
-        remaining_pages = get_pdf_page_count(new_path)
-
         return DeletePagesResponse(
-            newPdfId=new_id,
+            newPdfId=output_pdf_id(new_path),
             deletedPages=request.pageNumbers,
-            remainingPages=remaining_pages
+            remainingPages=get_pdf_page_count(new_path)
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/reorder-pages", response_model=ReorderPagesResponse)
-async def reorder_pages(request: ReorderPagesRequest):
+def reorder_pages(request: ReorderPagesRequest):
     """重新排序頁面"""
-    if request.pdfId not in pdf_files:
-        raise HTTPException(status_code=404, detail="PDF 檔案不存在")
+    pdf_path = _get_pdf_path(request.pdfId)
 
-    try:
+    with processing_errors("重新排序頁面"):
         new_path = PDFService.reorder_pages(
-            pdf_files[request.pdfId],
+            pdf_path,
             request.pageOrder
         )
 
-        # 獲取新檔案 ID
-        new_id = new_path.stem.split("_")[1]
-
-        # 儲存映射
-        pdf_files[new_id] = new_path
-
-        # 獲取頁面數
-        page_count = get_pdf_page_count(new_path)
-
         return ReorderPagesResponse(
-            newPdfId=new_id,
-            pageCount=page_count
+            newPdfId=output_pdf_id(new_path),
+            pageCount=get_pdf_page_count(new_path)
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
 
 
 @router.post("/compress", response_model=CompressResponse)
-async def compress_pdf(request: CompressRequest):
+def compress_pdf(request: CompressRequest):
     """壓縮 PDF"""
-    if request.pdfId not in pdf_files:
-        raise HTTPException(status_code=404, detail="PDF 檔案不存在")
+    pdf_path = _get_pdf_path(request.pdfId)
 
-    try:
+    with processing_errors("壓縮 PDF"):
         new_path, original_size, compressed_size = CompressService.compress(
-            pdf_files[request.pdfId],
+            pdf_path,
             request.quality,
             request.maxImageWidth,
             request.removeEmbeddedFiles
         )
 
-        # 獲取新檔案 ID
-        new_id = new_path.stem.split("_")[1]
+    # 計算壓縮比
+    compression_ratio = ((1 - compressed_size / original_size) * 100) if original_size > 0 else 0
 
-        # 儲存映射
-        pdf_files[new_id] = new_path
-
-        # 計算壓縮比
-        compression_ratio = ((1 - compressed_size / original_size) * 100) if original_size > 0 else 0
-
-        return CompressResponse(
-            newPdfId=new_id,
-            originalSize=original_size,
-            compressedSize=compressed_size,
-            compressionRatio=round(compression_ratio, 2)
-        )
-    except (OSError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return CompressResponse(
+        newPdfId=output_pdf_id(new_path),
+        originalSize=original_size,
+        compressedSize=compressed_size,
+        compressionRatio=round(compression_ratio, 2)
+    )
 
 
 @router.post("/watermark/text", response_model=WatermarkResponse)
-async def add_text_watermark(request: WatermarkTextRequest):
+def add_text_watermark(request: WatermarkTextRequest):
     """添加文字浮水印"""
-    if request.pdfId not in pdf_files:
-        raise HTTPException(status_code=404, detail="PDF 檔案不存在")
+    pdf_path = _get_pdf_path(request.pdfId)
 
-    try:
+    with processing_errors("添加浮水印"):
         new_path = WatermarkService.add_text_watermark(
-            pdf_files[request.pdfId],
+            pdf_path,
             request.text,
             request.position,
             request.fontSize,
@@ -247,21 +229,11 @@ async def add_text_watermark(request: WatermarkTextRequest):
             request.selectedPageNumbers if request.pages == "selected" else None
         )
 
-        # 獲取新檔案 ID
-        new_id = new_path.stem.split("_")[1]
-
-        # 儲存映射
-        pdf_files[new_id] = new_path
-
-        return WatermarkResponse(newPdfId=new_id)
-    except (OSError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return WatermarkResponse(newPdfId=output_pdf_id(new_path))
 
 
 @router.post("/watermark/image", response_model=WatermarkResponse)
-async def add_image_watermark(
+def add_image_watermark(
     pdfId: str = Form(...),
     image: UploadFile = File(...),
     position: str = Form("center"),
@@ -271,8 +243,7 @@ async def add_image_watermark(
     selectedPageNumbers: Optional[str] = Form(None)
 ):
     """添加圖片浮水印"""
-    if pdfId not in pdf_files:
-        raise HTTPException(status_code=404, detail="PDF 檔案不存在")
+    pdf_path = _get_pdf_path(pdfId)
 
     if position not in WatermarkService.POSITIONS:
         raise HTTPException(status_code=400, detail=f"無效的浮水印位置：{position}")
@@ -291,18 +262,10 @@ async def add_image_watermark(
             detail=f"圖片類型不支援：{image.filename}"
         )
 
-    # 讀取並儲存圖片
-    image_content = await image.read()
-    image_path = OUTPUTS_DIR / f"watermark_{generate_unique_id()}.png"
-
-    with open(image_path, "wb") as f:
-        f.write(image_content)
-
     # 解析選定頁面
     page_numbers = None
     if pages == "selected":
         if not selectedPageNumbers:
-            image_path.unlink(missing_ok=True)
             raise HTTPException(
                 status_code=400,
                 detail="pages 為 selected 時必須提供 selectedPageNumbers",
@@ -310,145 +273,100 @@ async def add_image_watermark(
         try:
             page_numbers = [int(p.strip()) for p in selectedPageNumbers.split(",")]
         except ValueError:
-            image_path.unlink(missing_ok=True)
-            raise HTTPException(status_code=400, detail="無效的頁面號碼格式")
+            raise HTTPException(status_code=400, detail="無效的頁面號碼格式") from None
         if len(page_numbers) != len(set(page_numbers)):
-            image_path.unlink(missing_ok=True)
             raise HTTPException(status_code=400, detail="頁面號碼不得重複")
 
+    # 儲存圖片
+    image_path = OUTPUTS_DIR / f"watermark_{generate_unique_id()}.png"
     try:
-        new_path = WatermarkService.add_image_watermark(
-            pdf_files[pdfId],
-            image_path,
-            position,
-            opacity,
-            imageWidth,
-            page_numbers
-        )
+        with open(image_path, "wb") as f:
+            shutil.copyfileobj(image.file, f)
 
-        # 獲取新檔案 ID
-        new_id = new_path.stem.split("_")[1]
-
-        # 儲存映射
-        pdf_files[new_id] = new_path
-
-        return WatermarkResponse(newPdfId=new_id)
-    except (OSError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        with processing_errors("添加浮水印"):
+            new_path = WatermarkService.add_image_watermark(
+                pdf_path,
+                image_path,
+                position,
+                opacity,
+                imageWidth,
+                page_numbers
+            )
     finally:
         image_path.unlink(missing_ok=True)
 
+    return WatermarkResponse(newPdfId=output_pdf_id(new_path))
+
 
 @router.get("/thumbnail/{pdf_id}/page/{page_number}")
-async def get_thumbnail(pdf_id: str, page_number: int, size: str = "medium"):
+def get_thumbnail(pdf_id: str, page_number: int, size: str = "medium"):
     """獲取頁面縮圖"""
-    if pdf_id not in pdf_files:
-        raise HTTPException(status_code=404, detail="PDF 檔案不存在")
+    pdf_path = _get_pdf_path(pdf_id)
 
-    try:
+    with processing_errors("產生縮圖"):
         thumbnail_bytes = generate_thumbnail(
-            pdf_files[pdf_id],
+            pdf_path,
             page_number,
             size
         )
 
-        return StreamingResponse(
-            io.BytesIO(thumbnail_bytes),
-            media_type="image/png"
-        )
-    except (OSError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return Response(
+        content=thumbnail_bytes,
+        media_type="image/png",
+        headers=IMAGE_CACHE_HEADERS,
+    )
 
 
 @router.post("/merge")
-async def merge_pdfs(pdf_ids: List[str] = Form(...)):
+def merge_pdfs(pdf_ids: List[str] = Form(...)):
     """合併多個 PDF 檔案"""
     if len(pdf_ids) < 2:
         raise HTTPException(status_code=400, detail="至少需要兩個 PDF 檔案才能合併")
 
     # 檢查所有 PDF 是否存在
+    pdf_paths = []
     for pdf_id in pdf_ids:
-        if pdf_id not in pdf_files:
-            raise HTTPException(status_code=404, detail=f"PDF 檔案不存在：{pdf_id}")
+        pdf_path = resolve_pdf_path(pdf_id)
+        if pdf_path is None:
+            raise HTTPException(status_code=404, detail=f"PDF 檔案不存在或已過期：{pdf_id}")
+        pdf_paths.append(pdf_path)
 
-    try:
-        # 合併 PDF
-        merged_path = PDFService.merge_pdfs([pdf_files[pdf_id] for pdf_id in pdf_ids])
-        merged_id = merged_path.stem.rsplit("_", 1)[-1]
-
-        # 儲存映射
-        pdf_files[merged_id] = merged_path
-
-        # 獲取頁面數量
-        page_count = get_pdf_page_count(merged_path)
+    with processing_errors("合併 PDF"):
+        merged_path = PDFService.merge_pdfs(pdf_paths)
+        merged_id = output_pdf_id(merged_path)
 
         return {
             "newPdfId": merged_id,
             "name": f"merged_{merged_id}.pdf",
-            "pageCount": page_count
+            "pageCount": get_pdf_page_count(merged_path)
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/preview/{pdf_id}/{page_number}")
-async def get_page_preview(pdf_id: str, page_number: int):
+def get_page_preview(pdf_id: str, page_number: int):
     """獲取單頁高解析度預覽"""
-    if pdf_id not in pdf_files:
-        raise HTTPException(status_code=404, detail="PDF 檔案不存在")
+    pdf_path = _get_pdf_path(pdf_id)
 
-    pdf_path = pdf_files[pdf_id]
-
-    try:
-        # 獲取頁面資訊以驗證頁面號
-        pages_info = get_pdf_page_info(pdf_path)
-        if page_number < 1 or page_number > len(pages_info):
-            raise HTTPException(status_code=400, detail=f"頁面號不有效：{page_number}")
-
+    with processing_errors("產生預覽"):
         # 生成高解析度預覽 (300 DPI)
-        from pdf2image import convert_from_path
-        images = convert_from_path(
-            pdf_path,
-            first_page=page_number,
-            last_page=page_number,
-            dpi=300
-        )
+        image = render_page(pdf_path, page_number, dpi=300)
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
 
-        if not images:
-            raise HTTPException(status_code=500, detail="無法生成預覽")
-
-        # 轉換為 PNG
-        img_byte_arr = io.BytesIO()
-        images[0].save(img_byte_arr, format='PNG')
-        img_byte_arr.seek(0)
-
-        return StreamingResponse(
-            img_byte_arr,
-            media_type="image/png",
-            headers={"Content-Disposition": f"inline; filename=page_{page_number}.png"}
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return Response(
+        content=buffer.getvalue(),
+        media_type="image/png",
+        headers={
+            **IMAGE_CACHE_HEADERS,
+            "Content-Disposition": f"inline; filename=page_{page_number}.png",
+        }
+    )
 
 
 @router.get("/download/{pdf_id}")
-async def download_pdf(pdf_id: str):
+def download_pdf(pdf_id: str):
     """下載 PDF 檔案"""
-    if pdf_id not in pdf_files:
-        raise HTTPException(status_code=404, detail="PDF 檔案不存在")
-
-    pdf_path = pdf_files[pdf_id]
-
-    if not pdf_path.exists():
-        raise HTTPException(status_code=404, detail="檔案不存在")
+    pdf_path = _get_pdf_path(pdf_id)
 
     return FileResponse(
         path=pdf_path,
@@ -458,22 +376,8 @@ async def download_pdf(pdf_id: str):
 
 
 @router.delete("/{pdf_id}")
-async def delete_pdf(pdf_id: str):
+def delete_pdf(pdf_id: str):
     """刪除 PDF 檔案"""
-    if pdf_id not in pdf_files:
-        raise HTTPException(status_code=404, detail="PDF 檔案不存在")
-
-    try:
-        # 刪除檔案
-        file_path = pdf_files[pdf_id]
-        file_path.unlink()
-        del pdf_files[pdf_id]
-
-        # 也刪除同名的輸出檔案（如果有）
-        output_file = OUTPUTS_DIR / f"{pdf_id}.pdf"
-        if output_file.exists():
-            output_file.unlink()
-
-        return {"message": "檔案刪除成功"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # 其他請求或過期清理可能已先刪除檔案，這種情況不算錯誤。
+    _get_pdf_path(pdf_id).unlink(missing_ok=True)
+    return {"message": "檔案刪除成功"}

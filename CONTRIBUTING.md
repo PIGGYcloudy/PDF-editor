@@ -15,16 +15,19 @@
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r backend/requirements.txt
+pip install -r backend/requirements-dev.txt
 cd backend
+ruff check
 pytest -q
 ```
 
-前端需要 Node.js 20.19+ 或 22.12+：
+前端需要 Node.js 22.12+（建議使用 24 LTS）：
 
 ```bash
 cd frontend
 npm ci
+npm run lint
+npm test
 npm run build
 ```
 
@@ -38,7 +41,7 @@ docker compose up --build
 
 1. 從 `main` 建立功能分支。
 2. 保持變更聚焦，並為行為改動新增或更新測試。
-3. 確認後端測試與前端 production build 都通過。
+3. 確認後端 lint 與測試、前端 lint、測試與 production build 都通過。
 4. 在 PR 說明問題、解法、驗證方式，以及任何相容性或隱私影響。
 
 提交 PR 即表示你同意依本專案的 [MIT License](LICENSE) 授權你的貢獻。
