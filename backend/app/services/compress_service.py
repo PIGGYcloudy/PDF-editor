@@ -133,20 +133,6 @@ class CompressService:
         return output_path, original_size, output_path.stat().st_size
 
     @staticmethod
-    def compress_with_image_resizing(
-        pdf_path: Path,
-        quality: int = 75,
-        max_image_width: int = 1200,
-    ) -> Tuple[Path, int, int]:
-        """保留舊有公開方法，轉由結構保留式壓縮流程處理。"""
-        return CompressService.compress(
-            pdf_path,
-            quality,
-            max_image_width,
-            remove_embedded_files=False,
-        )
-
-    @staticmethod
     def _remove_embedded_files(writer: PdfWriter) -> None:
         """移除文件、頁面與註解層級的附件關聯。"""
         writer.remove_annotations("/FileAttachment")

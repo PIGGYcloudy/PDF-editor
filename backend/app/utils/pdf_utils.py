@@ -18,7 +18,6 @@ from app.config import (
     MAX_CONCURRENT_RENDERS,
     MAX_RENDER_PIXELS,
     OUTPUTS_DIR,
-    PAPER_SIZES,
     THUMBNAIL_SIZES,
     UPLOADS_DIR,
 )
@@ -78,55 +77,6 @@ def get_pdf_page_count(pdf_path: Path) -> int:
     # 傳入檔案物件讓 pypdf 按需讀取，不把整份 PDF 載入記憶體。
     with open(pdf_path, "rb") as pdf_file:
         return len(PdfReader(pdf_file).pages)
-
-
-def get_pdf_page_info(pdf_path: Path) -> List[dict]:
-    """
-    獲取 PDF 所有頁面的資訊
-    
-    Args:
-        pdf_path: PDF 檔案路徑
-    
-    Returns:
-        頁面資訊列表，每個元素包含 pageNumber, width, height
-    """
-    reader = PdfReader(str(pdf_path))
-    pages_info = []
-    
-    for idx, page in enumerate(reader.pages):
-        width = int(page.mediabox.width)
-        height = int(page.mediabox.height)
-        
-        pages_info.append({
-            "pageNumber": idx + 1,
-            "width": width,
-            "height": height,
-        })
-    
-    return pages_info
-
-
-def get_single_page_size(pdf_path: Path, page_number: int) -> Tuple[int, int]:
-    """
-    獲取 PDF 單頁的尺寸資訊
-
-    Args:
-        pdf_path: PDF 檔案路徑
-        page_number: 頁面號碼（從 1 開始）
-
-    Returns:
-        (寬度，高度) 單位為點（points）
-
-    Raises:
-        IndexError: 當 page_number 超出範圍時
-    """
-    reader = PdfReader(str(pdf_path))
-    if page_number < 1 or page_number > len(reader.pages):
-        raise IndexError(f"Page number {page_number} out of range")
-
-    page = reader.pages[page_number - 1]
-    media_box = page.mediabox
-    return int(media_box.width), int(media_box.height)
 
 
 def render_page(pdf_path: Path, page_number: int, dpi: int) -> Image.Image:
@@ -306,46 +256,6 @@ def resolve_pdf_path(pdf_id: str) -> Optional[Path]:
         return file_path
 
     return None
-
-
-def copy_pdf(source_path: Path, new_filename: str) -> Path:
-    """
-    複製 PDF 檔案
-    
-    Args:
-        source_path: 來源檔案路徑
-        new_filename: 新檔案名稱
-    
-    Returns:
-        新檔案路徑
-    """
-    reader = PdfReader(str(source_path))
-    writer = PdfWriter()
-    
-    for page in reader.pages:
-        writer.add_page(page)
-    
-    file_path = OUTPUTS_DIR / new_filename
-    
-    with open(file_path, "wb") as f:
-        writer.write(f)
-    
-    return file_path
-
-
-def get_preset_size(preset: str) -> Tuple[int, int]:
-    """
-    獲取預設紙張尺寸
-    
-    Args:
-        preset: 尺寸名稱
-    
-    Returns:
-        (寬度，高度) - 單位：points
-    """
-    if preset not in PAPER_SIZES:
-        raise ValueError(f"無效的尺寸：{preset}")
-    return PAPER_SIZES[preset]
 
 
 def validate_page_numbers(page_numbers: List[int], total_pages: int) -> None:

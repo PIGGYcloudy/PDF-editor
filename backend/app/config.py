@@ -19,9 +19,13 @@ OUTPUTS_DIR = BASE_DIR / "outputs"
 UPLOADS_DIR.mkdir(exist_ok=True)
 OUTPUTS_DIR.mkdir(exist_ok=True)
 
-# 檔案設定
-MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
-ALLOWED_FILE_TYPES = ["application/pdf"]
+# 日誌等級
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+# 單次請求（一次上傳的所有檔案合計）的大小上限，需與前端 nginx 的
+# client_max_body_size 一致
+MAX_UPLOAD_MB = 100
+MAX_UPLOAD_SIZE = MAX_UPLOAD_MB * 1024 * 1024
 
 # 檔案保留設定：閒置超過保留時間的上傳與輸出檔會被自動刪除，設為 0 可停用
 FILE_RETENTION_HOURS = float(os.getenv("FILE_RETENTION_HOURS", "24"))
@@ -48,22 +52,6 @@ THUMBNAIL_SIZES = {
     "small": (100, 100),
     "medium": (200, 200),
     "large": (400, 400),
-}
-
-# 預設 DPI
-DEFAULT_DPI = 150
-
-# 紙張尺寸 (寬度，高度) - 單位：points (1/72 英寸)
-PAPER_SIZES = {
-    "A3": (842, 1191),
-    "A4": (595, 842),
-    "A5": (420, 595),
-    "B2": (1417, 2004),
-    "B3": (1000, 1417),
-    "B4": (709, 1000),
-    "B5": (500, 709),
-    "Letter": (612, 792),
-    "Legal": (612, 1008),
 }
 
 # CORS 設定

@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
 from app.models.schemas import ConvertToImageRequest, ConvertToImageResponse
+from app.routers.errors import processing_errors
 from app.services.convert_service import ConvertService
 from app.utils.pdf_utils import resolve_pdf_path
 
@@ -20,40 +21,21 @@ def convert_to_image(request: ConvertToImageRequest):
     if pdf_path is None:
         raise HTTPException(status_code=404, detail="PDF 檔案不存在或已過期")
 
-    # 驗證格式
-    if request.format.lower() not in ["jpg", "png"]:
-        raise HTTPException(
-            status_code=400,
-            detail="不支援的格式，請使用 jpg 或 png"
-        )
-
-    # 驗證 DPI
-    if request.dpi not in [72, 150, 300]:
-        raise HTTPException(
-            status_code=400,
-            detail="不支援的 DPI，請使用 72、150 或 300"
-        )
-
-    try:
-        # 轉換為圖片
+    # 格式與 DPI 已由 ConvertToImageRequest 的 Literal 型別驗證。
+    with processing_errors("轉換為圖片"):
         zip_path, image_count = ConvertService.convert_to_images(
             pdf_path,
-            request.format.lower(),
+            request.format,
             request.dpi,
             request.selectedPageNumbers if request.pages == "selected" else None
         )
 
-        # 返回下載 URL
-        filename = zip_path.name
-        return ConvertToImageResponse(
-            zipUrl=f"/api/convert/download/{filename}",
-            imageCount=image_count,
-            format=request.format.lower()
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # 返回下載 URL
+    return ConvertToImageResponse(
+        zipUrl=f"/api/convert/download/{zip_path.name}",
+        imageCount=image_count,
+        format=request.format
+    )
 
 
 @router.get("/download/{filename}")

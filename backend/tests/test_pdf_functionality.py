@@ -928,3 +928,86 @@ def test_all_page_rendering_goes_through_render_page(
 
     assert convert.status_code == 200
     assert rendered_dpis == [100, 300, 72, 72]
+
+
+def test_upload_limit_applies_to_combined_request_size(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    isolated_storage,
+):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    pdf_bytes = source.read_bytes()
+    monkeypatch.setattr(pdf_router, "MAX_UPLOAD_SIZE", len(pdf_bytes) + 1)
+    client = TestClient(app)
+
+    single = client.post(
+        "/api/pdf/upload",
+        files=[("files", ("one.pdf", pdf_bytes, "application/pdf"))],
+    )
+    batch = client.post(
+        "/api/pdf/upload",
+        files=[
+            ("files", ("one.pdf", pdf_bytes, "application/pdf")),
+            ("files", ("two.pdf", pdf_bytes, "application/pdf")),
+        ],
+    )
+
+    assert single.status_code == 200
+    assert batch.status_code == 413
+    assert "合計" in batch.json()["detail"]
+    # 超過上限的批次不會留下任何檔案。
+    assert len(list(isolated_storage["uploads"].iterdir())) == 1
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [
+        (RuntimeError("/srv/secret/path failed"), 500),
+        (OSError("[Errno 2] No such file: '/srv/secret/path'"), 400),
+    ],
+)
+def test_processing_errors_do_not_leak_internal_details(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+    status_code: int,
+):
+    def failing_compress(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(CompressService, "compress", failing_compress)
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    response = client.post("/api/pdf/compress", json={"pdfId": pdf_id})
+
+    assert response.status_code == status_code
+    assert "壓縮 PDF失敗" in response.json()["detail"]
+    assert "/srv/secret" not in response.json()["detail"]
+
+
+def test_validation_errors_are_still_shown_to_users(tmp_path: Path):
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    response = client.post(
+        "/api/pdf/delete-pages",
+        json={"pdfId": pdf_id, "pageNumbers": [1, 2]},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "不能刪除所有頁面"
+
+
+@pytest.mark.parametrize("color", ["red", "#FFF", "#GG0000", "FF0000"])
+def test_watermark_color_must_be_six_digit_hex(color: str):
+    with pytest.raises(ValidationError):
+        WatermarkTextRequest(pdfId="pdf-id", text="watermark", color=color)
+
+    assert WatermarkTextRequest(
+        pdfId="pdf-id",
+        text="watermark",
+        color="#00aa7F",
+    ).color == "#00aa7F"

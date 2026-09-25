@@ -13,6 +13,9 @@ from app.config import (
     CLEANUP_INTERVAL_MINUTES,
     CORS_ORIGINS,
     FILE_RETENTION_HOURS,
+    LOG_LEVEL,
+    MAX_UPLOAD_MB,
+    MAX_UPLOAD_SIZE,
     OUTPUTS_DIR,
     UPLOADS_DIR,
 )
@@ -21,7 +24,7 @@ from app.services.cleanup_service import CleanupService
 
 # 配置日誌
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=LOG_LEVEL,
     format='[%(asctime)s] %(levelname)s [%(name)s] %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
@@ -58,10 +61,10 @@ async def lifespan(app: FastAPI):
             await cleanup_task
 
 
-# 創建 FastAPI 應用，設置最大上傳大小為 100MB
+# 創建 FastAPI 應用
 app = FastAPI(
     title="PDF 編輯器 API",
-    description="PDF 編輯器後端 API，提供頁面管理、尺寸調整、壓縮、浮水印和格式轉換等功能",
+    description="PDF 編輯器後端 API，提供頁面管理、壓縮、浮水印和格式轉換等功能",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -69,16 +72,15 @@ app = FastAPI(
 # 添加請求大小限制中間件
 @app.middleware("http")
 async def check_content_length(request: Request, call_next):
-    """檢查請求內容長度，防止過大的請求"""
-    max_size = 100 * 1024 * 1024  # 100MB
+    """在讀取內容前拒絕過大的請求；上傳路由另外檢查實際檔案大小"""
     content_length = request.headers.get("Content-Length")
-    
-    if content_length and int(content_length) > max_size:
+
+    if content_length and int(content_length) > MAX_UPLOAD_SIZE:
         return JSONResponse(
             status_code=413,
-            content={"detail": f"檔案太大，最大支援 100MB"}
+            content={"detail": f"檔案太大：單次上傳合計最多 {MAX_UPLOAD_MB}MB"}
         )
-    
+
     response = await call_next(request)
     return response
 

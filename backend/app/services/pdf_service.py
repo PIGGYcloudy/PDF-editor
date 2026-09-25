@@ -2,13 +2,11 @@
 PDF 基本處理服務
 """
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from pypdf import PdfReader, PdfWriter
-from PIL import Image
 
 from app.utils.pdf_utils import (
-    get_preset_size,
     validate_page_numbers,
     save_output_pdf,
 )
@@ -102,11 +100,6 @@ class PDFService:
             })
 
         return pages_info
-
-    @staticmethod
-    def get_file_size(file_path: Path) -> int:
-        """獲取檔案大小 (bytes)"""
-        return file_path.stat().st_size
 
     @staticmethod
     def merge_pdfs(pdf_paths: List[Path]) -> Path:

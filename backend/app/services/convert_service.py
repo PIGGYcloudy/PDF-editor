@@ -1,7 +1,6 @@
 """
 PDF 格式轉換服務
 """
-import io
 import re
 import shutil
 import zipfile
@@ -113,41 +112,3 @@ class ConvertService:
         shutil.rmtree(output_dir)
 
         return zip_path, image_count
-
-    @staticmethod
-    def convert_single_page_to_image(
-        pdf_path: Path,
-        page_number: int,
-        output_format: str = "jpg",
-        dpi: int = 150
-    ) -> bytes:
-        """
-        將 PDF 單頁轉換為圖片
-
-        Args:
-            pdf_path: PDF 檔案路徑
-            page_number: 頁面號碼 (1-based)
-            output_format: 輸出格式 ("jpg" 或 "png")
-            dpi: 解析度
-
-        Returns:
-            圖片的 bytes
-        """
-        img = render_page(pdf_path, page_number, dpi)
-
-        # 轉換為 RGB (如果格式是 JPG)
-        if output_format.lower() == "jpg" and img.mode != "RGB":
-            if img.mode == "RGBA":
-                background = Image.new("RGB", img.size, (255, 255, 255))
-                background.paste(img, mask=img.split()[3])
-                img = background
-            else:
-                img = img.convert("RGB")
-
-        # 保存為 bytes
-        buffer = io.BytesIO()
-        format_mime = "JPEG" if output_format.lower() == "jpg" else "PNG"
-        img.save(buffer, format=format_mime)
-        buffer.seek(0)
-
-        return buffer.getvalue()
