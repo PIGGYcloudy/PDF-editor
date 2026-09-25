@@ -1,5 +1,5 @@
-# 使用 Node.js 20 作為建構階段
-FROM node:20-alpine AS builder
+# 使用 Node.js 24 LTS 作為建構階段
+FROM node:24-alpine AS builder
 
 # 設定工作目錄
 WORKDIR /app

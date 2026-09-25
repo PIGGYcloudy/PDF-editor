@@ -87,7 +87,7 @@ Ubuntu/Debian：
 sudo apt-get install poppler-utils fonts-droid-fallback
 python -m venv .venv
 source .venv/bin/activate
-pip install -r backend/requirements.txt
+pip install -r backend/requirements-dev.txt
 cd backend
 uvicorn app.main:app --reload --host 127.0.0.1 --port 7999
 ```
@@ -96,7 +96,7 @@ macOS 可使用 `brew install poppler` 安裝 Poppler。
 
 ### 前端
 
-需求：Node.js 20.19+ 或 22.12+。
+需求：Node.js 22.12+（建議使用 24 LTS）。
 
 ```bash
 cd frontend
@@ -110,16 +110,21 @@ npm run dev
 
 ```bash
 cd backend
+ruff check
 pytest -q
 ```
 
 ```bash
 cd frontend
 npm ci
+npm run lint
+npm test
 npm run build
 ```
 
-每次 push 到 `main` 與每個 Pull Request 都會透過 GitHub Actions 執行測試、production build 與依賴漏洞稽核；Dependabot 每週檢查 Python 與 npm 更新。
+`backend/requirements-dev.txt` 包含執行服務所需的套件，以及 pytest、ruff 等開發工具；Docker image 只安裝 `requirements.txt`。
+
+每次 push 到 `main` 與每個 Pull Request 都會透過 GitHub Actions 執行 lint、測試、production build 與依賴漏洞稽核；Dependabot 每週檢查 Python 與 npm 更新。
 
 ## API 與開發文件
 

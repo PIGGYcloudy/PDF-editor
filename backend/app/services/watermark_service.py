@@ -186,7 +186,7 @@ class WatermarkService:
                 pdfmetrics.getFont(WatermarkService.CJK_FONT_NAME)
             except KeyError:
                 if not WatermarkService.CJK_FONT_PATH.exists():
-                    raise ValueError("伺服器缺少中文字型，無法建立中文浮水印")
+                    raise ValueError("伺服器缺少中文字型，無法建立中文浮水印") from None
                 pdfmetrics.registerFont(
                     TTFont(
                         WatermarkService.CJK_FONT_NAME,
@@ -198,7 +198,7 @@ class WatermarkService:
         try:
             text.encode("cp1252")
         except UnicodeEncodeError:
-            raise ValueError("目前字型不支援輸入的字元")
+            raise ValueError("目前字型不支援輸入的字元") from None
 
         requested_font = font_family.strip()
         alias = WatermarkService.FONT_ALIASES.get(
@@ -209,7 +209,7 @@ class WatermarkService:
             pdfmetrics.getFont(alias)
             return alias
         except KeyError:
-            raise ValueError(f"不支援的字體：{font_family}")
+            raise ValueError(f"不支援的字體：{font_family}") from None
 
     @staticmethod
     def _contains_cjk(text: str) -> bool:

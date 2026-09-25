@@ -94,11 +94,11 @@ def upload_pdf(files: List[UploadFile] = File(...)):
         # 所有檔案先完成驗證再寫入，避免批次上傳中途失敗留下半套資料。
         try:
             page_count = len(PdfReader(upload).pages)
-        except Exception:
+        except Exception as error:
             raise HTTPException(
                 status_code=400,
                 detail=f"PDF 檔案損壞或格式無法解析：{filename}",
-            )
+            ) from error
         if page_count < 1:
             raise HTTPException(
                 status_code=400,
@@ -116,10 +116,10 @@ def upload_pdf(files: List[UploadFile] = File(...)):
             saved_files.append(
                 (file_id, file_path, filename, size, page_count)
             )
-    except Exception:
+    except Exception as error:
         for _, file_path, _, _, _ in saved_files:
             file_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail="PDF 檔案儲存失敗")
+        raise HTTPException(status_code=500, detail="PDF 檔案儲存失敗") from error
 
     uploaded_files = []
     for file_id, _, filename, size, page_count in saved_files:
@@ -273,7 +273,7 @@ def add_image_watermark(
         try:
             page_numbers = [int(p.strip()) for p in selectedPageNumbers.split(",")]
         except ValueError:
-            raise HTTPException(status_code=400, detail="無效的頁面號碼格式")
+            raise HTTPException(status_code=400, detail="無效的頁面號碼格式") from None
         if len(page_numbers) != len(set(page_numbers)):
             raise HTTPException(status_code=400, detail="頁面號碼不得重複")
 
