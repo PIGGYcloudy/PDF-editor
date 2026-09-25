@@ -1,4 +1,4 @@
-// PDF 檔案類型
+// PDF 檔案類型（後端回傳）
 export interface PDFFile {
   id: string;
   name: string;
@@ -14,15 +14,6 @@ export interface Page {
   height: number;
   thumbnailUrl?: string;
 }
-
-// 頁面資訊（包含選取狀態）
-export interface PageWithState extends Page {
-  isSelected: boolean;
-  isDragging?: boolean;
-}
-
-// 浮水印類型
-export type WatermarkType = 'text' | 'image';
 
 // 浮水印位置
 export type WatermarkPosition = 'center' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
@@ -42,44 +33,20 @@ export interface TextWatermarkConfig {
 export interface ImageWatermarkConfig {
   position: WatermarkPosition;
   opacity: number;
+  /** 圖片寬度 (pt)；未指定時依圖片原始尺寸 */
   imageWidth?: number;
-  imageUrl?: string;
-  imageData?: string;
 }
 
-// 浮水印配置
-export interface WatermarkConfig {
-  type: WatermarkType;
-  text?: TextWatermarkConfig;
-  image?: ImageWatermarkConfig;
-  pages: 'all' | 'selected';
-  selectedPageNumbers?: number[];
-}
-
-// 壓縮配置
-export interface CompressConfig {
+// 壓縮選項
+export interface CompressOptions {
   quality: number;
   maxImageWidth: number;
   removeEmbeddedFiles: boolean;
 }
 
-// 轉換配置
-export interface ConvertConfig {
-  format: 'jpg' | 'png';
-  dpi: 72 | 150 | 300;
-  pages: 'all' | 'selected';
-  selectedPageNumbers?: number[];
-}
-
-// API 回應類型
-export interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: {
-    code: string;
-    message: string;
-  };
-}
+// 轉換選項
+export type ConvertFormat = 'jpg' | 'png';
+export type ConvertDpi = 72 | 150 | 300;
 
 // 上傳回應
 export interface UploadResponse {
@@ -117,6 +84,13 @@ export interface CompressResponse {
 // 浮水印回應
 export interface WatermarkResponse {
   newPdfId: string;
+}
+
+// 合併回應
+export interface MergeResponse {
+  newPdfId: string;
+  name: string;
+  pageCount: number;
 }
 
 // 轉換回應

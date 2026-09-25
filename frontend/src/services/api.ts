@@ -5,8 +5,12 @@ import type {
   DeletePagesResponse,
   ReorderPagesResponse,
   CompressResponse,
+  CompressOptions,
   WatermarkResponse,
+  MergeResponse,
   ConvertResponse,
+  ConvertDpi,
+  ConvertFormat,
   TextWatermarkConfig,
   ImageWatermarkConfig,
 } from '../types';
@@ -64,15 +68,11 @@ export async function reorderPages(pdfId: string, pageOrder: number[]): Promise<
 // 壓縮 PDF
 export async function compressPDF(
   pdfId: string,
-  quality: number = 75,
-  maxImageWidth: number = 1200,
-  removeEmbeddedFiles: boolean = true
+  options: CompressOptions,
 ): Promise<CompressResponse> {
   const response = await api.post<CompressResponse>('/pdf/compress', {
     pdfId,
-    quality,
-    maxImageWidth,
-    removeEmbeddedFiles,
+    ...options,
   });
   return response.data;
 }
@@ -106,7 +106,7 @@ export async function addImageWatermark(
   formData.append('image', image);
   formData.append('position', config.position);
   formData.append('opacity', config.opacity.toString());
-  if (config.imageWidth) {
+  if (config.imageWidth !== undefined) {
     formData.append('imageWidth', config.imageWidth.toString());
   }
   formData.append('pages', pages);
@@ -125,8 +125,8 @@ export async function addImageWatermark(
 // 轉換為圖片
 export async function convertToImage(
   pdfId: string,
-  format: 'jpg' | 'png',
-  dpi: 72 | 150 | 300,
+  format: ConvertFormat,
+  dpi: ConvertDpi,
   pages: 'all' | 'selected' = 'all',
   selectedPageNumbers?: number[]
 ): Promise<ConvertResponse> {
@@ -148,26 +148,17 @@ export async function downloadFile(filename: string): Promise<Blob> {
   return response.data;
 }
 
-// 獲取縮圖
-export async function getThumbnail(pdfId: string, pageNumber: number, size: string = 'medium'): Promise<Blob> {
-  const response = await api.get(`/pdf/thumbnail/${pdfId}/page/${pageNumber}`, {
-    params: { size },
-    responseType: 'blob',
-  });
-  return response.data;
-}
-
 // 刪除 PDF
 export async function deletePDF(pdfId: string): Promise<void> {
   await api.delete(`/pdf/${pdfId}`);
 }
 
 // 合併 PDF
-export async function mergePDFs(pdfIds: string[]): Promise<{ newPdfId: string; name: string; pageCount: number }> {
+export async function mergePDFs(pdfIds: string[]): Promise<MergeResponse> {
   const formData = new FormData();
   pdfIds.forEach((id) => formData.append('pdf_ids', id));
-  
-  const response = await api.post<{ newPdfId: string; name: string; pageCount: number }>('/pdf/merge', formData, {
+
+  const response = await api.post<MergeResponse>('/pdf/merge', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
@@ -175,12 +166,9 @@ export async function mergePDFs(pdfIds: string[]): Promise<{ newPdfId: string; n
   return response.data;
 }
 
-// 獲取頁面預覽
-export async function getPagePreview(pdfId: string, pageNumber: number): Promise<Blob> {
-  const response = await api.get(`/pdf/preview/${pdfId}/${pageNumber}`, {
-    responseType: 'blob',
-  });
-  return response.data;
+// 單頁高解析度預覽的圖片網址
+export function getPagePreviewUrl(pdfId: string, pageNumber: number): string {
+  return `${API_BASE_URL}/pdf/preview/${pdfId}/${pageNumber}`;
 }
 
 // 取得要下載的 PDF 內容

@@ -1011,3 +1011,20 @@ def test_watermark_color_must_be_six_digit_hex(color: str):
         text="watermark",
         color="#00aa7F",
     ).color == "#00aa7F"
+
+
+def test_page_images_are_cacheable_but_private(tmp_path: Path):
+    # 每個版本的 ID 都不會再改變，縮圖與預覽可以長期快取。
+    source = create_sample_pdf(tmp_path / "source.pdf")
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    for url in (
+        f"/api/pdf/thumbnail/{pdf_id}/page/1",
+        f"/api/pdf/preview/{pdf_id}/1",
+    ):
+        response = client.get(url)
+        assert response.status_code == 200
+        cache_control = response.headers["cache-control"]
+        assert "private" in cache_control
+        assert "immutable" in cache_control

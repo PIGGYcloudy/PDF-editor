@@ -44,6 +44,10 @@ from app.services.watermark_service import WatermarkService
 # 同步路由放到 threadpool 執行，避免卡住 event loop 讓其他請求一起等待。
 router = APIRouter(prefix="/pdf", tags=["PDF"])
 
+# 每次編輯都會產生新的 ID，同一個 ID 的頁面圖片不會改變，可以讓瀏覽器長期快取。
+# 使用 private 避免共用快取保存使用者文件的內容。
+IMAGE_CACHE_HEADERS = {"Cache-Control": "private, max-age=86400, immutable"}
+
 
 def _get_pdf_path(pdf_id: str) -> Path:
     """取得 PDF 路徑，找不到時回傳 404。"""
@@ -306,7 +310,11 @@ def get_thumbnail(pdf_id: str, page_number: int, size: str = "medium"):
             size
         )
 
-    return Response(content=thumbnail_bytes, media_type="image/png")
+    return Response(
+        content=thumbnail_bytes,
+        media_type="image/png",
+        headers=IMAGE_CACHE_HEADERS,
+    )
 
 
 @router.post("/merge")
@@ -348,7 +356,10 @@ def get_page_preview(pdf_id: str, page_number: int):
     return Response(
         content=buffer.getvalue(),
         media_type="image/png",
-        headers={"Content-Disposition": f"inline; filename=page_{page_number}.png"}
+        headers={
+            **IMAGE_CACHE_HEADERS,
+            "Content-Disposition": f"inline; filename=page_{page_number}.png",
+        }
     )
 
 
