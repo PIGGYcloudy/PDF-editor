@@ -1,22 +1,33 @@
-import { Box, Paper, Typography } from '@mui/material';
+import { Box, Paper, Stack, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import { UploadFile as UploadFileIcon } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import type { FileRejection } from 'react-dropzone';
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from '../constants';
+import type { ImagePageSize } from '../types';
 
 interface UploadZoneProps {
   disabled: boolean;
   /** 已有文件時縮成一列，把空間留給頁面預覽 */
   compact?: boolean;
+  /** 圖片轉成 PDF 時的頁面大小 */
+  imagePageSize: ImagePageSize;
+  onImagePageSizeChange: (size: ImagePageSize) => void;
   onFiles: (files: File[]) => void;
   onError: (message: string) => void;
 }
 
-function UploadZone({ disabled, compact = false, onFiles, onError }: UploadZoneProps) {
+function UploadZone({
+  disabled,
+  compact = false,
+  imagePageSize,
+  onImagePageSizeChange,
+  onFiles,
+  onError,
+}: UploadZoneProps) {
   const onDrop = (acceptedFiles: File[], rejections: FileRejection[]) => {
     if (rejections.length > 0) {
       const names = rejections.map((rejection) => rejection.file.name).join('、');
-      onError(`只能上傳 PDF 檔案：${names}`);
+      onError(`只能上傳 PDF 或圖片（PNG、JPG、WebP）：${names}`);
       return;
     }
     if (acceptedFiles.length === 0) {
@@ -36,10 +47,32 @@ function UploadZone({ disabled, compact = false, onFiles, onError }: UploadZoneP
     onDrop,
     accept: {
       'application/pdf': ['.pdf'],
+      'image/png': ['.png'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/webp': ['.webp'],
     },
     multiple: true,
     disabled,
   });
+
+  const pageSizeToggle = (
+    <Stack direction="row" spacing={1} alignItems="center">
+      <Typography variant="caption" color="text.secondary">
+        圖片轉 PDF 的頁面：
+      </Typography>
+      <ToggleButtonGroup
+        exclusive
+        size="small"
+        color="primary"
+        value={imagePageSize}
+        onChange={(_, value: ImagePageSize | null) => value && onImagePageSizeChange(value)}
+        aria-label="圖片轉 PDF 的頁面大小"
+      >
+        <ToggleButton value="a4" sx={{ py: 0.25 }}>A4</ToggleButton>
+        <ToggleButton value="fit" sx={{ py: 0.25 }}>依圖片大小</ToggleButton>
+      </ToggleButtonGroup>
+    </Stack>
+  );
 
   const dropzoneSx = {
     border: '2px dashed #ccc',
@@ -52,46 +85,55 @@ function UploadZone({ disabled, compact = false, onFiles, onError }: UploadZoneP
 
   if (compact) {
     return (
-      <Box
-        {...getRootProps()}
-        sx={{
-          ...dropzoneSx,
-          mb: 2,
-          px: 2,
-          py: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 1,
-        }}
+      <Stack
+        direction={{ xs: 'column', md: 'row' }}
+        spacing={1}
+        alignItems={{ xs: 'stretch', md: 'center' }}
+        sx={{ mb: 2 }}
       >
-        <input {...getInputProps()} />
-        <UploadFileIcon sx={{ color: '#1976d2' }} />
-        <Typography variant="body2">
-          {isDragActive ? '釋放以上傳檔案' : '拖曳或點擊加入更多 PDF'}
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'inline' } }}>
-          合計最多 {MAX_UPLOAD_MB}MB
-        </Typography>
-      </Box>
+        <Box
+          {...getRootProps()}
+          sx={{
+            ...dropzoneSx,
+            flexGrow: 1,
+            px: 2,
+            py: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 1,
+          }}
+        >
+          <input {...getInputProps()} />
+          <UploadFileIcon sx={{ color: '#1976d2' }} />
+          <Typography variant="body2">
+            {isDragActive ? '釋放以上傳檔案' : '拖曳或點擊加入更多 PDF 或圖片'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+            合計最多 {MAX_UPLOAD_MB}MB
+          </Typography>
+        </Box>
+        {pageSizeToggle}
+      </Stack>
     );
   }
 
   return (
     <Paper sx={{ p: 3, mb: 3 }}>
       <Typography variant="h6" gutterBottom>
-        上傳 PDF 檔案
+        上傳 PDF 或圖片
       </Typography>
       <Box {...getRootProps()} sx={{ ...dropzoneSx, p: 4 }}>
         <input {...getInputProps()} />
         <UploadFileIcon sx={{ fontSize: 48, color: '#1976d2', mb: 1 }} />
         <Typography>
-          {isDragActive ? '釋放以上傳檔案' : '拖曳 PDF 檔案到這裡，或點擊選擇檔案'}
+          {isDragActive ? '釋放以上傳檔案' : '拖曳 PDF 或圖片到這裡，或點擊選擇檔案'}
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          可一次選擇多個檔案，合計最多 {MAX_UPLOAD_MB}MB
+          可一次選擇多個檔案，合計最多 {MAX_UPLOAD_MB}MB。圖片（PNG、JPG、WebP）會依檔名順序合成一份 PDF，每張一頁。
         </Typography>
       </Box>
+      <Box sx={{ mt: 1.5 }}>{pageSizeToggle}</Box>
     </Paper>
   );
 }

@@ -7,6 +7,7 @@ import {
   deletePDF,
   extractPages,
   getPages,
+  imagesToPdf,
   mergePDFs,
   splitPDF,
   uploadPDF,
@@ -31,6 +32,7 @@ import {
 import type { PdfVersion } from '../state/workspace';
 import type {
   CompressOptions,
+  ImagePageSize,
   ImageWatermarkConfig,
   Page,
   PDFFile,
@@ -40,6 +42,7 @@ import type {
 } from '../types';
 import type { Status, TaskResult } from './useStatus';
 import { getErrorMessage } from '../utils/errors';
+import { isPdfFile, sortByNameNatural } from '../utils/files';
 
 type NewVersion = Pick<PdfVersion, 'id'> & Partial<PdfVersion>;
 
@@ -168,10 +171,26 @@ export function usePdfWorkspace({ runTask, setError }: Status) {
     }, messages.failure);
   };
 
-  const upload = (files: File[]) => runTask(async () => {
-    const response = await uploadPDF(files);
-    dispatch({ type: 'filesAdded', files: response.files });
-    const firstFile = response.files[0];
+  /** 上傳 PDF；圖片會依檔名順序合成一份新的 PDF，每張圖片一頁。 */
+  const upload = (files: File[], imagePageSize: ImagePageSize = 'a4') => runTask(async () => {
+    const pdfs = files.filter(isPdfFile);
+    const images = sortByNameNatural(files.filter((file) => !isPdfFile(file)));
+    const added: PDFFile[] = [];
+
+    // 每一步完成就加入清單，後一步失敗時已上傳的檔案不會遺失。
+    if (pdfs.length > 0) {
+      const response = await uploadPDF(pdfs);
+      added.push(...response.files);
+      dispatch({ type: 'filesAdded', files: response.files });
+    }
+    if (images.length > 0) {
+      const response = await imagesToPdf(images, imagePageSize);
+      const converted = toPdfFile(response, response.name);
+      added.push(converted);
+      dispatch({ type: 'filesAdded', files: [converted] });
+    }
+
+    const firstFile = added[0];
     if (firstFile) {
       dispatch({ type: 'currentChanged', key: firstFile.id });
       setSelectedPages(new Set());
@@ -179,7 +198,12 @@ export function usePdfWorkspace({ runTask, setError }: Status) {
         return false;
       }
     }
-    return '檔案上傳成功！';
+
+    if (images.length === 0) {
+      return '檔案上傳成功！';
+    }
+    const imageMessage = `已將 ${images.length} 張圖片轉成 PDF，可拖曳頁面調整順序。`;
+    return pdfs.length > 0 ? `已上傳 ${pdfs.length} 份 PDF，${imageMessage}` : imageMessage;
   }, '檔案上傳失敗，請稍後再試。');
 
   const openFile = (key: string) => {

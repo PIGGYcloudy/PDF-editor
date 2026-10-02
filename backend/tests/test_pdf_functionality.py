@@ -1249,3 +1249,118 @@ def test_split_limits_number_of_files(tmp_path: Path):
 
     assert response.status_code == 400
     assert "最多拆分" in response.json()["detail"]
+
+
+def make_image_bytes(
+    size=(200, 100),
+    image_format="PNG",
+    mode="RGB",
+    exif_orientation=None,
+) -> bytes:
+    color = (255, 0, 0, 128) if mode == "RGBA" else (255, 0, 0)
+    image = Image.new(mode, size, color)
+    buffer = BytesIO()
+    options = {}
+    if exif_orientation is not None:
+        exif = Image.Exif()
+        exif[0x0112] = exif_orientation
+        options["exif"] = exif
+    image.save(buffer, format=image_format, **options)
+    return buffer.getvalue()
+
+
+def post_images(client: TestClient, images, **data):
+    files = [
+        ("images", (name, content, "application/octet-stream"))
+        for name, content in images
+    ]
+    return client.post("/api/convert/images-to-pdf", files=files, data=data)
+
+
+def test_images_to_pdf_creates_one_a4_page_per_image_in_order():
+    client = TestClient(app)
+
+    response = post_images(client, [
+        ("b.png", make_image_bytes((200, 100))),
+        ("a.jpg", make_image_bytes((100, 200), "JPEG")),
+    ])
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["pageCount"] == 2
+    assert body["name"] == "b_等2張.pdf"
+    assert body["size"] > 0
+    pages = PdfReader(str(resolve_pdf_path(body["id"]))).pages
+    sizes = [(round(float(p.mediabox.width)), round(float(p.mediabox.height))) for p in pages]
+    # 橫式圖片用橫式 A4，直式圖片用直式 A4
+    assert sizes == [(842, 595), (595, 842)]
+
+
+def test_images_to_pdf_honors_exif_orientation_and_flattens_transparency():
+    client = TestClient(app)
+
+    # EXIF 方向 6：實際顯示要順時針轉 90 度，橫圖會變成直圖
+    response = post_images(client, [
+        ("photo.jpg", make_image_bytes((300, 100), "JPEG", exif_orientation=6)),
+        ("logo.png", make_image_bytes((50, 50), "PNG", mode="RGBA")),
+    ], pageSize="fit")
+
+    assert response.status_code == 200
+    pages = PdfReader(str(resolve_pdf_path(response.json()["id"]))).pages
+    first = (float(pages[0].mediabox.width), float(pages[0].mediabox.height))
+    assert first[1] > first[0]
+    # fit：頁面大小為圖片以 150 DPI 換算的尺寸
+    assert first == pytest.approx((100 * 72 / 150, 300 * 72 / 150), abs=0.1)
+
+
+def test_images_to_pdf_names_single_image_after_its_file():
+    client = TestClient(app)
+
+    response = post_images(client, [("My Scan.PNG", make_image_bytes())])
+
+    assert response.json()["name"] == "My Scan.pdf"
+
+
+def test_images_to_pdf_rejects_bad_input(isolated_storage):
+    client = TestClient(app)
+
+    cases = [
+        ([("notes.txt", b"hello")], 400, "無法讀取圖片"),
+        ([("anim.bmp", make_image_bytes(image_format="BMP"))], 400, "不支援的圖片格式"),
+        ([("a.png", make_image_bytes())], 400, "頁面大小"),
+    ]
+    for images, status, message in cases:
+        data = {"pageSize": "huge"} if message == "頁面大小" else {}
+        response = post_images(client, images, **data)
+        assert response.status_code == status, message
+        assert message in response.json()["detail"]
+
+    assert post_images(client, []).status_code == 422
+    # 失敗時不留下半成品
+    assert list(isolated_storage["outputs"].iterdir()) == []
+
+
+def test_images_to_pdf_limits_count_and_size(monkeypatch: pytest.MonkeyPatch):
+    from app.services import image_service
+
+    client = TestClient(app)
+    tiny = make_image_bytes((10, 10))
+
+    monkeypatch.setattr(image_service, "MAX_IMAGES", 2)
+    response = post_images(client, [("a.png", tiny)] * 3)
+    assert response.status_code == 400
+    assert "最多轉換 2 張" in response.json()["detail"]
+
+    monkeypatch.setattr(convert_router, "MAX_UPLOAD_SIZE", len(tiny))
+    response = post_images(client, [("a.png", tiny)] * 2)
+    assert response.status_code == 413
+
+
+def test_images_to_pdf_rejects_oversized_images(monkeypatch: pytest.MonkeyPatch):
+    from app.services import image_service
+
+    monkeypatch.setattr(image_service, "MAX_IMAGE_PIXELS", 100)
+    response = post_images(TestClient(app), [("big.png", make_image_bytes((20, 20)))])
+
+    assert response.status_code == 400
+    assert "尺寸太大" in response.json()["detail"]
