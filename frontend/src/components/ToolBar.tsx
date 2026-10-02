@@ -1,4 +1,4 @@
-import { Button, Grid, Paper, Typography } from '@mui/material';
+import { Button, Paper, Stack, Typography } from '@mui/material';
 import {
   CallSplit as SplitIcon,
   Compress as CompressIcon,
@@ -37,54 +37,42 @@ function ToolBar({
     icon: ReactNode,
     disabled = false,
   ) => (
-    <Grid item xs={12} sm={6} md={4}>
-      <Button
-        fullWidth
-        variant={activePanel === panel ? 'contained' : 'outlined'}
-        onClick={() => onTogglePanel(panel)}
-        startIcon={icon}
-        disabled={disabled || loading}
-      >
-        {label}
-      </Button>
-    </Grid>
+    <Button
+      variant={activePanel === panel ? 'contained' : 'outlined'}
+      onClick={() => onTogglePanel(panel)}
+      startIcon={icon}
+      disabled={disabled || loading}
+    >
+      {label}
+    </Button>
   );
 
   return (
-    <Paper sx={{ p: 3, mb: 3 }}>
-      <Typography variant="h6" gutterBottom>
-        功能
-      </Typography>
-      <Grid container spacing={2}>
+    <Paper sx={{ p: 1.5, mb: 2 }}>
+      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
         {panelButton('split', '拆分 PDF', <SplitIcon />, hasPendingEdits)}
         {panelButton('compress', '壓縮 PDF', <CompressIcon />, hasPendingEdits)}
         {panelButton('watermark', '添加浮水印', <WatermarkIcon />, hasPendingEdits)}
         {panelButton('convert', '轉換為圖片', <PhotoIcon />, hasPendingEdits)}
-        <Grid item xs={12} sm={6} md={4}>
-          <Button
-            fullWidth
-            variant="outlined"
-            onClick={onUndo}
-            startIcon={<UndoIcon />}
-            disabled={!canUndo || loading}
-          >
-            {hasPendingEdits ? '復原頁面編輯' : '復原上一步'}
-          </Button>
-        </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <Button
-            fullWidth
-            variant="outlined"
-            onClick={onSavePdf}
-            startIcon={<DownloadIcon />}
-            disabled={loading || hasPendingEdits}
-          >
-            另存 PDF
-          </Button>
-        </Grid>
-      </Grid>
+        <Button
+          variant="outlined"
+          onClick={onUndo}
+          startIcon={<UndoIcon />}
+          disabled={!canUndo || loading}
+        >
+          {hasPendingEdits ? '復原頁面編輯' : '復原上一步'}
+        </Button>
+        <Button
+          variant="outlined"
+          onClick={onSavePdf}
+          startIcon={<DownloadIcon />}
+          disabled={loading || hasPendingEdits}
+        >
+          另存 PDF
+        </Button>
+      </Stack>
       {hasPendingEdits && (
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           頁面有尚未套用的變更。請先在下方「套用變更」或「還原變更」，
           才能使用拆分、壓縮、浮水印、轉換與另存。
         </Typography>

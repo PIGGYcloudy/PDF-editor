@@ -48,6 +48,15 @@ function discardVersions(ids: string[]): Promise<unknown> {
   return Promise.allSettled(ids.map((id) => deletePDF(id)));
 }
 
+/** 最近一次壓縮的結果；pdfId 是壓縮後的版本，換了版本就不再顯示。 */
+export interface CompressionResult {
+  pdfId: string;
+  originalSize: number;
+  compressedSize: number;
+  /** 縮小的百分比；檔案變大時為負數 */
+  ratio: number;
+}
+
 const PENDING_EDITS_MESSAGE = '請先套用或還原頁面變更。';
 
 function baseName(filename: string): string {
@@ -75,6 +84,7 @@ export function usePdfWorkspace({ runTask, setError }: Status) {
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   // Shift 點選範圍選取的起點
   const selectionAnchor = useRef<number | null>(null);
+  const [compression, setCompression] = useState<CompressionResult | null>(null);
 
   const currentFile = getCurrentFile(state);
   const mergeFiles = getMergeFiles(state);
@@ -272,14 +282,20 @@ export function usePdfWorkspace({ runTask, setError }: Status) {
       return Promise.resolve(false);
     }
     return editCurrentFile(
-      (pdfId) => compressPDF(pdfId, options),
+      async (pdfId) => {
+        const result = await compressPDF(pdfId, options);
+        setCompression({
+          pdfId: result.newPdfId,
+          originalSize: result.originalSize,
+          compressedSize: result.compressedSize,
+          ratio: result.compressionRatio,
+        });
+        return result;
+      },
       (result) => ({ id: result.newPdfId, size: result.compressedSize }),
       {
-        success: (result) => {
-          const originalMB = (result.originalSize / 1024 / 1024).toFixed(2);
-          const compressedMB = (result.compressedSize / 1024 / 1024).toFixed(2);
-          return `壓縮成功！從 ${originalMB}MB 壓縮到 ${compressedMB}MB (${result.compressionRatio}% 壓縮比)`;
-        },
+        // 詳細的大小變化顯示在壓縮面板
+        success: () => '壓縮完成。',
         failure: '壓縮失敗。',
         previewFailure: 'PDF 已壓縮，但新版本預覽載入失敗。',
       },
@@ -449,6 +465,7 @@ export function usePdfWorkspace({ runTask, setError }: Status) {
     pages,
     pageOrder,
     rotations,
+    compression: compression?.pdfId === currentFile?.id ? compression : null,
     hasEdits,
     editSummary: describeEdits(summarizeEdits(edits)),
     canUndo: edits.history.length > 0 || (currentFile?.history.length ?? 0) > 0,

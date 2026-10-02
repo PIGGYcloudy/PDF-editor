@@ -44,31 +44,34 @@ function FileList({
     .filter((name): name is string => name !== undefined);
 
   return (
-    <Paper sx={{ p: 3, mb: 3 }}>
-      <Stack
-        direction={{ xs: 'column', sm: 'row' }}
-        justifyContent="space-between"
-        alignItems={{ xs: 'stretch', sm: 'center' }}
-        spacing={1}
-        sx={{ mb: 2 }}
-      >
-        <Box>
-          <Typography variant="h6">PDF 檔案</Typography>
-          <Typography variant="body2" color="text.secondary">
-            {mergeNames.length > 0
-              ? `合併順序：${mergeNames.join(' → ')}`
-              : '勾選兩個以上的檔案即可合併，合併順序依勾選順序。'}
-          </Typography>
-        </Box>
-        <Button
-          variant="contained"
-          onClick={onMerge}
-          disabled={loading || mergeSelection.length < 2}
-          startIcon={<MergeIcon />}
+    <Paper sx={{ p: 2, mb: 2 }}>
+      {/* 只有一份文件時沒有合併可做，省下標題與合併列的空間 */}
+      {files.length > 1 && (
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          justifyContent="space-between"
+          alignItems={{ xs: 'stretch', sm: 'center' }}
+          spacing={1}
+          sx={{ mb: 1.5 }}
         >
-          合併選取的 PDF ({mergeSelection.length})
-        </Button>
-      </Stack>
+          <Box>
+            <Typography variant="h6">PDF 檔案</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {mergeNames.length > 0
+                ? `合併順序：${mergeNames.join(' → ')}`
+                : '勾選兩個以上的檔案即可合併，合併順序依勾選順序。'}
+            </Typography>
+          </Box>
+          <Button
+            variant="contained"
+            onClick={onMerge}
+            disabled={loading || mergeSelection.length < 2}
+            startIcon={<MergeIcon />}
+          >
+            合併選取的 PDF ({mergeSelection.length})
+          </Button>
+        </Stack>
+      )}
       <Grid container spacing={2}>
         {files.map((file) => {
           const mergeIndex = mergeSelection.indexOf(file.key);
@@ -78,7 +81,7 @@ function FileList({
               <Paper
                 variant="outlined"
                 sx={{
-                  p: 2,
+                  p: 1.5,
                   borderRadius: 2,
                   borderWidth: isCurrent ? 2 : 1,
                   borderColor: isCurrent ? 'primary.main' : 'divider',
