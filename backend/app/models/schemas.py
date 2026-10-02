@@ -226,3 +226,11 @@ class ConvertToImageResponse(BaseModel):
     zipUrl: str
     imageCount: int
     format: str
+
+
+# 圖片轉 PDF 回應
+class ImagesToPdfResponse(BaseModel):
+    id: str
+    name: str
+    pageCount: int
+    size: int

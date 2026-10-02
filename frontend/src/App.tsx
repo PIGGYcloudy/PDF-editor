@@ -16,7 +16,7 @@ import { getSaveExtension, useFileSave } from './hooks/useFileSave';
 import { usePdfWorkspace } from './hooks/usePdfWorkspace';
 import { useStatus } from './hooks/useStatus';
 import type { WorkspaceFile } from './state/workspace';
-import type { ConvertDpi, ConvertFormat } from './types';
+import type { ConvertDpi, ConvertFormat, ImagePageSize } from './types';
 import {
   canUseNativeSaveFilePicker,
   normalizeDownloadFilename,
@@ -27,6 +27,7 @@ function App() {
   const workspace = usePdfWorkspace(status);
   const [activePanel, setActivePanel] = useState<ToolPanel | null>(null);
   const [previewPage, setPreviewPage] = useState<number | null>(null);
+  const [imagePageSize, setImagePageSize] = useState<ImagePageSize>('a4');
   const saver = useFileSave(status, (request) => {
     if (request.kind === 'images') {
       setActivePanel(null);
@@ -72,7 +73,7 @@ function App() {
   const handleUpload = (files: File[]) => {
     if (!confirmDiscardEdits()) return;
     setActivePanel(null);
-    void workspace.upload(files);
+    void workspace.upload(files, imagePageSize);
   };
 
   const handleOpen = (key: string) => {
@@ -190,6 +191,8 @@ function App() {
 
         <UploadZone
           compact={workspace.files.length > 0}
+          imagePageSize={imagePageSize}
+          onImagePageSizeChange={setImagePageSize}
           disabled={loading}
           onFiles={handleUpload}
           onError={status.setError}

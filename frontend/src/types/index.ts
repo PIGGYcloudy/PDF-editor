@@ -114,3 +114,14 @@ export interface SplitFileInfo {
 export interface SplitResponse {
   files: SplitFileInfo[];
 }
+
+// 圖片轉 PDF
+/** a4：圖片縮放置中在 A4 頁面；fit：每頁大小等於圖片大小 */
+export type ImagePageSize = 'a4' | 'fit';
+
+export interface ImagesToPdfResponse {
+  id: string;
+  name: string;
+  pageCount: number;
+  size: number;
+}

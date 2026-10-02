@@ -9,6 +9,8 @@ import type {
   ConvertResponse,
   ConvertDpi,
   ConvertFormat,
+  ImagePageSize,
+  ImagesToPdfResponse,
   ApplyEditsResponse,
   PageEditPayload,
   SplitOptions,
@@ -150,6 +152,23 @@ export async function convertToImage(
     dpi,
     pages,
     selectedPageNumbers,
+  });
+  return response.data;
+}
+
+// 依順序把圖片組成一份 PDF，每張圖片一頁
+export async function imagesToPdf(
+  images: File[],
+  pageSize: ImagePageSize,
+): Promise<ImagesToPdfResponse> {
+  const formData = new FormData();
+  images.forEach((image) => formData.append('images', image));
+  formData.append('pageSize', pageSize);
+
+  const response = await api.post<ImagesToPdfResponse>('/convert/images-to-pdf', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
   });
   return response.data;
 }
