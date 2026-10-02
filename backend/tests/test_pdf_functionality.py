@@ -41,7 +41,7 @@ from app.routers import convert as convert_router
 from app.routers import pdf as pdf_router
 from app.services.cleanup_service import CleanupService
 from app.services.compress_service import CompressService
-from app.services.pdf_service import PDFService
+from app.services.pdf_service import PDFService, parse_page_ranges
 from app.services.watermark_service import WatermarkService
 from app.utils import pdf_utils
 from app.utils.pdf_utils import output_pdf_id, render_page, resolve_pdf_path
@@ -1047,3 +1047,205 @@ def test_render_page_draws_non_embedded_cjk_text(tmp_path: Path):
     dark_pixels = sum(histogram[:128])
 
     assert dark_pixels > 200, "中文沒有被渲染出來，請確認已安裝 poppler-data"
+
+
+def create_numbered_pdf(path: Path, pages: int) -> Path:
+    pdf = canvas.Canvas(str(path), pagesize=A4)
+    for number in range(1, pages + 1):
+        pdf.drawString(72, 780, f"Page {number}")
+        pdf.showPage()
+    pdf.save()
+    return path
+
+
+def page_texts(path: Path):
+    return [
+        page.extract_text().strip()
+        for page in PdfReader(str(path)).pages
+    ]
+
+
+def test_apply_page_edits_deletes_reorders_and_rotates(tmp_path: Path):
+    source = create_numbered_pdf(tmp_path / "source.pdf", 4)
+
+    output = PDFService.apply_page_edits(source, [(3, 90), (1, 0), (4, 270)])
+
+    reader = PdfReader(str(output))
+    assert page_texts(output) == ["Page 3", "Page 1", "Page 4"]
+    assert [page.rotation for page in reader.pages] == [90, 0, 270]
+
+
+def test_apply_page_edits_adds_to_existing_rotation(tmp_path: Path):
+    source = create_numbered_pdf(tmp_path / "source.pdf", 1)
+    rotated = PDFService.apply_page_edits(source, [(1, 90)])
+
+    output = PDFService.apply_page_edits(rotated, [(1, 90)])
+
+    assert PdfReader(str(output)).pages[0].rotation == 180
+
+
+@pytest.mark.parametrize(
+    "edits, message",
+    [
+        ([], "至少需要選擇一個頁面"),
+        ([(1, 0), (1, 90)], "不得重複"),
+        ([(5, 0)], "無效的頁面號碼"),
+        ([(1, 45)], "旋轉角度"),
+    ],
+)
+def test_apply_page_edits_rejects_invalid_input(
+    tmp_path: Path,
+    edits,
+    message: str,
+):
+    source = create_numbered_pdf(tmp_path / "source.pdf", 2)
+
+    with pytest.raises(ValueError, match=message):
+        PDFService.apply_page_edits(source, edits)
+
+
+def test_parse_page_ranges():
+    assert parse_page_ranges("1-3, 5，8", 10) == [[1, 2, 3], [5], [8]]
+
+    for invalid in ("", "a", "3-1", "0-2", "9-11", "1-"):
+        with pytest.raises(ValueError):
+            parse_page_ranges(invalid, 10)
+
+
+def test_apply_edits_api_creates_new_version(tmp_path: Path):
+    source = create_numbered_pdf(tmp_path / "source.pdf", 3)
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    response = client.post(
+        "/api/pdf/apply-edits",
+        json={
+            "pdfId": pdf_id,
+            "pages": [
+                {"pageNumber": 3, "rotation": 90},
+                {"pageNumber": 1},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["pageCount"] == 2
+    assert page_texts(resolve_pdf_path(body["newPdfId"])) == ["Page 3", "Page 1"]
+    # 原版本保持不變，才能復原
+    assert page_texts(resolve_pdf_path(pdf_id)) == ["Page 1", "Page 2", "Page 3"]
+
+
+def test_apply_edits_api_validates_request(tmp_path: Path):
+    source = create_numbered_pdf(tmp_path / "source.pdf", 2)
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    for pages in (
+        [],
+        [{"pageNumber": 1}, {"pageNumber": 1}],
+        [{"pageNumber": 1, "rotation": 45}],
+        [{"pageNumber": 0}],
+    ):
+        response = client.post(
+            "/api/pdf/apply-edits", json={"pdfId": pdf_id, "pages": pages}
+        )
+        assert response.status_code == 422, pages
+
+    response = client.post(
+        "/api/pdf/apply-edits",
+        json={"pdfId": pdf_id, "pages": [{"pageNumber": 3}]},
+    )
+    assert response.status_code == 400
+
+    response = client.post(
+        "/api/pdf/apply-edits",
+        json={"pdfId": str(uuid.uuid4()), "pages": [{"pageNumber": 1}]},
+    )
+    assert response.status_code == 404
+
+
+def test_extract_api_creates_independent_file(tmp_path: Path):
+    source = create_numbered_pdf(tmp_path / "source.pdf", 4)
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    response = client.post(
+        "/api/pdf/extract",
+        json={"pdfId": pdf_id, "pages": [{"pageNumber": 4}, {"pageNumber": 2}]},
+    )
+
+    assert response.status_code == 200
+    [extracted] = response.json()["files"]
+    assert extracted["pageCount"] == 2
+    assert extracted["size"] > 0
+    assert page_texts(resolve_pdf_path(extracted["id"])) == ["Page 4", "Page 2"]
+    assert page_texts(resolve_pdf_path(pdf_id)) == [
+        "Page 1", "Page 2", "Page 3", "Page 4",
+    ]
+
+
+def test_split_api_by_ranges_and_by_count(tmp_path: Path):
+    source = create_numbered_pdf(tmp_path / "source.pdf", 5)
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    response = client.post(
+        "/api/pdf/split",
+        json={"pdfId": pdf_id, "mode": "ranges", "ranges": "1-2, 5"},
+    )
+    assert response.status_code == 200
+    files = response.json()["files"]
+    assert [file["label"] for file in files] == ["1-2", "5"]
+    assert [page_texts(resolve_pdf_path(file["id"])) for file in files] == [
+        ["Page 1", "Page 2"],
+        ["Page 5"],
+    ]
+
+    response = client.post(
+        "/api/pdf/split",
+        json={"pdfId": pdf_id, "mode": "every", "every": 2},
+    )
+    assert response.status_code == 200
+    files = response.json()["files"]
+    assert [file["pageCount"] for file in files] == [2, 2, 1]
+    assert [file["label"] for file in files] == ["1-2", "3-4", "5"]
+
+
+def test_split_api_rejects_invalid_requests(tmp_path: Path):
+    source = create_numbered_pdf(tmp_path / "source.pdf", 3)
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    for body in (
+        {"mode": "ranges"},
+        {"mode": "ranges", "ranges": "  "},
+        {"mode": "every"},
+        {"mode": "every", "every": 0},
+        {"mode": "bogus"},
+    ):
+        response = client.post("/api/pdf/split", json={"pdfId": pdf_id, **body})
+        assert response.status_code == 422, body
+
+    for body in (
+        {"mode": "ranges", "ranges": "2-9"},
+        {"mode": "ranges", "ranges": "x"},
+        {"mode": "every", "every": 3},
+        {"mode": "every", "every": 10},
+    ):
+        response = client.post("/api/pdf/split", json={"pdfId": pdf_id, **body})
+        assert response.status_code == 400, body
+
+
+def test_split_limits_number_of_files(tmp_path: Path):
+    source = create_numbered_pdf(tmp_path / "source.pdf", 101)
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    response = client.post(
+        "/api/pdf/split",
+        json={"pdfId": pdf_id, "mode": "every", "every": 1},
+    )
+
+    assert response.status_code == 400
+    assert "最多拆分" in response.json()["detail"]

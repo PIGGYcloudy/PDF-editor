@@ -14,6 +14,8 @@ import {
 } from '@mui/material';
 import { Image as ImageIcon } from '@mui/icons-material';
 import { WATERMARK_FONTS, WATERMARK_POSITIONS } from '../../constants';
+import WatermarkPreview from './WatermarkPreview';
+import type { WatermarkPreviewPage } from './WatermarkPreview';
 import type {
   ImageWatermarkConfig,
   TextWatermarkConfig,
@@ -26,6 +28,8 @@ const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif'];
 
 interface WatermarkPanelProps {
   selectedCount: number;
+  /** 預覽用的頁面（第一個選取的頁面，沒有選取時為第一頁） */
+  previewPage: WatermarkPreviewPage | null;
   loading: boolean;
   onAddText: (config: TextWatermarkConfig) => void;
   onAddImage: (image: File, config: ImageWatermarkConfig) => void;
@@ -33,6 +37,7 @@ interface WatermarkPanelProps {
 
 function WatermarkPanel({
   selectedCount,
+  previewPage,
   loading,
   onAddText,
   onAddImage,
@@ -106,139 +111,168 @@ function WatermarkPanel({
         <ToggleButton value="image">圖片</ToggleButton>
       </ToggleButtonGroup>
 
-      <Stack spacing={2} sx={{ mb: 2, maxWidth: 520 }}>
-        {mode === 'text' ? (
-          <>
-            <TextField
-              label="浮水印文字"
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              helperText="含中文時會自動使用內建中文字型"
-            />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+      <Stack
+        direction={{ xs: 'column', md: 'row' }}
+        spacing={3}
+        alignItems={{ md: 'flex-start' }}
+      >
+        <Stack spacing={2} sx={{ mb: 2, maxWidth: 520, flexGrow: 1 }}>
+          {mode === 'text' ? (
+            <>
               <TextField
-                select
-                label="字型"
-                value={fontFamily}
-                onChange={(event) => setFontFamily(event.target.value)}
-                sx={{ minWidth: 200 }}
-              >
-                {WATERMARK_FONTS.map((font) => (
-                  <MenuItem key={font.value} value={font.value}>{font.label}</MenuItem>
-                ))}
-              </TextField>
-              <TextField
-                label="字級 (pt)"
-                type="number"
-                value={fontSize}
-                onChange={(event) => setFontSize(event.target.value)}
-                error={!fontSizeValid}
-                helperText={fontSizeValid ? ' ' : '請輸入 8–200 的整數'}
-                inputProps={{ min: 8, max: 200 }}
+                label="浮水印文字"
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                helperText="含中文時會自動使用內建中文字型"
               />
-              <TextField
-                label="顏色"
-                type="color"
-                value={color}
-                onChange={(event) => setColor(event.target.value.toUpperCase())}
-                sx={{ minWidth: 96 }}
-              />
-            </Stack>
-            <Box>
-              <Typography id="watermark-rotation" variant="body2" gutterBottom>
-                旋轉角度：{rotation}°
-              </Typography>
-              <Slider
-                aria-labelledby="watermark-rotation"
-                min={0}
-                max={360}
-                value={rotation}
-                onChange={(_, value) => setRotation(value as number)}
-              />
-            </Box>
-          </>
-        ) : (
-          <>
-            <Stack direction="row" spacing={2} alignItems="center">
-              <Button component="label" variant="outlined" startIcon={<ImageIcon />}>
-                選擇圖片
-                <input
-                  hidden
-                  type="file"
-                  accept={ACCEPTED_IMAGE_TYPES.join(',')}
-                  onChange={(event) => {
-                    setImage(event.target.files?.[0] ?? null);
-                    // 允許再次選擇同一個檔案
-                    event.target.value = '';
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                <TextField
+                  select
+                  label="字型"
+                  value={fontFamily}
+                  onChange={(event) => setFontFamily(event.target.value)}
+                  sx={{ minWidth: 200 }}
+                >
+                  {WATERMARK_FONTS.map((font) => (
+                    <MenuItem key={font.value} value={font.value}>{font.label}</MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="字級 (pt)"
+                  type="number"
+                  value={fontSize}
+                  onChange={(event) => setFontSize(event.target.value)}
+                  error={!fontSizeValid}
+                  helperText={fontSizeValid ? ' ' : '請輸入 8–200 的整數'}
+                  inputProps={{ min: 8, max: 200 }}
+                />
+                <TextField
+                  label="顏色"
+                  type="color"
+                  value={color}
+                  onChange={(event) => setColor(event.target.value.toUpperCase())}
+                  sx={{ minWidth: 96 }}
+                />
+              </Stack>
+              <Box>
+                <Typography id="watermark-rotation" variant="body2" gutterBottom>
+                  旋轉角度：{rotation}°
+                </Typography>
+                <Slider
+                  aria-labelledby="watermark-rotation"
+                  min={0}
+                  max={360}
+                  value={rotation}
+                  onChange={(_, value) => setRotation(value as number)}
+                />
+              </Box>
+            </>
+          ) : (
+            <>
+              <Stack direction="row" spacing={2} alignItems="center">
+                <Button component="label" variant="outlined" startIcon={<ImageIcon />}>
+                  選擇圖片
+                  <input
+                    hidden
+                    type="file"
+                    accept={ACCEPTED_IMAGE_TYPES.join(',')}
+                    onChange={(event) => {
+                      setImage(event.target.files?.[0] ?? null);
+                      // 允許再次選擇同一個檔案
+                      event.target.value = '';
+                    }}
+                  />
+                </Button>
+                <Typography variant="body2" color="text.secondary" noWrap>
+                  {image ? image.name : 'PNG、JPG 或 GIF；透明背景的 PNG 效果最好'}
+                </Typography>
+              </Stack>
+              {imageUrl && (
+                <Box
+                  component="img"
+                  src={imageUrl}
+                  alt="浮水印圖片預覽"
+                  sx={{
+                    maxWidth: 200,
+                    maxHeight: 120,
+                    objectFit: 'contain',
+                    border: '1px solid #eee',
+                    borderRadius: 1,
+                    bgcolor: '#fafafa',
                   }}
                 />
-              </Button>
-              <Typography variant="body2" color="text.secondary" noWrap>
-                {image ? image.name : 'PNG、JPG 或 GIF；透明背景的 PNG 效果最好'}
-              </Typography>
-            </Stack>
-            {imageUrl && (
-              <Box
-                component="img"
-                src={imageUrl}
-                alt="浮水印圖片預覽"
-                sx={{
-                  maxWidth: 200,
-                  maxHeight: 120,
-                  objectFit: 'contain',
-                  border: '1px solid #eee',
-                  borderRadius: 1,
-                  bgcolor: '#fafafa',
-                }}
+              )}
+              <TextField
+                label="圖片寬度 (pt)"
+                type="number"
+                value={imageWidth}
+                onChange={(event) => setImageWidth(event.target.value)}
+                error={!imageWidthValid}
+                helperText={
+                  imageWidthValid
+                    ? '留空則依圖片原始尺寸；72 pt 約為 1 英吋，超出頁面時會自動縮小'
+                    : '請輸入大於 0 的整數'
+                }
+                inputProps={{ min: 1 }}
               />
-            )}
-            <TextField
-              label="圖片寬度 (pt)"
-              type="number"
-              value={imageWidth}
-              onChange={(event) => setImageWidth(event.target.value)}
-              error={!imageWidthValid}
-              helperText={
-                imageWidthValid
-                  ? '留空則依圖片原始尺寸；72 pt 約為 1 英吋，超出頁面時會自動縮小'
-                  : '請輸入大於 0 的整數'
-              }
-              inputProps={{ min: 1 }}
-            />
-          </>
-        )}
+            </>
+          )}
 
-        <Box>
-          <Typography variant="body2" gutterBottom>位置</Typography>
-          <ToggleButtonGroup
-            exclusive
-            color="primary"
-            size="small"
-            value={position}
-            onChange={(_, value: WatermarkPosition | null) => value && setPosition(value)}
-            aria-label="浮水印位置"
-            sx={{ flexWrap: 'wrap' }}
-          >
-            {WATERMARK_POSITIONS.map((option) => (
-              <ToggleButton key={option.value} value={option.value}>
-                {option.label}
-              </ToggleButton>
-            ))}
-          </ToggleButtonGroup>
-        </Box>
-        <Box>
-          <Typography id="watermark-opacity" variant="body2" gutterBottom>
-            不透明度：{Math.round(opacity * 100)}%
-          </Typography>
-          <Slider
-            aria-labelledby="watermark-opacity"
-            min={0.05}
-            max={1}
-            step={0.05}
-            value={opacity}
-            onChange={(_, value) => setOpacity(value as number)}
-          />
-        </Box>
+          <Box>
+            <Typography variant="body2" gutterBottom>位置</Typography>
+            <ToggleButtonGroup
+              exclusive
+              color="primary"
+              size="small"
+              value={position}
+              onChange={(_, value: WatermarkPosition | null) => value && setPosition(value)}
+              aria-label="浮水印位置"
+              sx={{ flexWrap: 'wrap' }}
+            >
+              {WATERMARK_POSITIONS.map((option) => (
+                <ToggleButton key={option.value} value={option.value}>
+                  {option.label}
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+          </Box>
+          <Box>
+            <Typography id="watermark-opacity" variant="body2" gutterBottom>
+              不透明度：{Math.round(opacity * 100)}%
+            </Typography>
+            <Slider
+              aria-labelledby="watermark-opacity"
+              min={0.05}
+              max={1}
+              step={0.05}
+              value={opacity}
+              onChange={(_, value) => setOpacity(value as number)}
+            />
+          </Box>
+        </Stack>
+      {previewPage && (
+        <WatermarkPreview
+          page={previewPage}
+          content={mode === 'text'
+            ? {
+              kind: 'text',
+              text,
+              position,
+              fontSize: fontSizeValid ? fontSizeValue : 48,
+              fontFamily,
+              color,
+              opacity,
+              rotation,
+            }
+            : {
+              kind: 'image',
+              url: imageUrl,
+              position,
+              opacity,
+              imageWidth: imageWidthValid ? imageWidthValue : undefined,
+            }}
+        />
+      )}
       </Stack>
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  Alert,
   Box,
   Button,
   Checkbox,
@@ -10,17 +11,21 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import type { CompressionResult } from '../../hooks/usePdfWorkspace';
 import type { CompressOptions } from '../../types';
+import { formatBytes } from '../../utils/format';
 
 interface CompressPanelProps {
   loading: boolean;
+  /** 目前版本是壓縮的結果時，顯示壓縮前後的大小 */
+  result: CompressionResult | null;
   onCompress: (options: CompressOptions) => void;
 }
 
 const MIN_IMAGE_WIDTH = 100;
 const MAX_IMAGE_WIDTH = 10000;
 
-function CompressPanel({ loading, onCompress }: CompressPanelProps) {
+function CompressPanel({ loading, result, onCompress }: CompressPanelProps) {
   const [quality, setQuality] = useState(75);
   const [maxImageWidth, setMaxImageWidth] = useState('1200');
   const [removeEmbeddedFiles, setRemoveEmbeddedFiles] = useState(true);
@@ -75,6 +80,19 @@ function CompressPanel({ loading, onCompress }: CompressPanelProps) {
           label="移除 PDF 內嵌的附件"
         />
       </Box>
+      {result && (
+        <Alert
+          severity={result.ratio > 0 ? 'success' : 'warning'}
+          sx={{ mb: 2, maxWidth: 480 }}
+        >
+          <strong>
+            {formatBytes(result.originalSize)} → {formatBytes(result.compressedSize)}
+          </strong>
+          {result.ratio > 0
+            ? `（縮小 ${result.ratio}%）`
+            : '（沒有變小，這份文件的圖片可能已經很精簡。可降低品質再試，或按「復原上一步」還原）'}
+        </Alert>
+      )}
       <Button
         variant="contained"
         onClick={() => onCompress({ quality, maxImageWidth: width, removeEmbeddedFiles })}

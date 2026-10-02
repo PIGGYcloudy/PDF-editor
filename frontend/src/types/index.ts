@@ -60,19 +60,6 @@ export interface PagesResponse {
   pages: Page[];
 }
 
-// 刪除頁面回應
-export interface DeletePagesResponse {
-  newPdfId: string;
-  deletedPages: number[];
-  remainingPages: number;
-}
-
-// 重新排序回應
-export interface ReorderPagesResponse {
-  newPdfId: string;
-  pageCount: number;
-}
-
 // 壓縮回應
 export interface CompressResponse {
   newPdfId: string;
@@ -98,4 +85,32 @@ export interface ConvertResponse {
   zipUrl: string;
   imageCount: number;
   format: string;
+}
+
+// 套用頁面編輯（刪除、排序、旋轉）
+export interface PageEditPayload {
+  pageNumber: number;
+  rotation: number;
+}
+
+export interface ApplyEditsResponse {
+  newPdfId: string;
+  pageCount: number;
+}
+
+// 抽出頁面與拆分
+export type SplitOptions =
+  | { mode: 'ranges'; ranges: string }
+  | { mode: 'every'; every: number };
+
+export interface SplitFileInfo {
+  id: string;
+  /** 頁碼標籤，例如 "1-3"；抽出頁面時為 "extract" */
+  label: string;
+  pageCount: number;
+  size: number;
+}
+
+export interface SplitResponse {
+  files: SplitFileInfo[];
 }

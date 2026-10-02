@@ -13,6 +13,12 @@ from pypdf import PdfReader
 
 from app.config import OUTPUTS_DIR, MAX_UPLOAD_MB, MAX_UPLOAD_SIZE
 from app.models.schemas import (
+    ApplyEditsRequest,
+    ApplyEditsResponse,
+    ExtractRequest,
+    SplitFile,
+    SplitRequest,
+    SplitResponse,
     DeletePagesRequest,
     DeletePagesResponse,
     ReorderPagesRequest,
@@ -36,7 +42,7 @@ from app.utils.pdf_utils import (
     save_uploaded_file,
     uploaded_pdf_id,
 )
-from app.services.pdf_service import PDFService
+from app.services.pdf_service import PDFService, parse_page_ranges
 from app.services.compress_service import CompressService
 from app.services.watermark_service import WatermarkService
 
@@ -185,6 +191,73 @@ def reorder_pages(request: ReorderPagesRequest):
             newPdfId=output_pdf_id(new_path),
             pageCount=get_pdf_page_count(new_path)
         )
+
+
+@router.post("/apply-edits", response_model=ApplyEditsResponse)
+def apply_edits(request: ApplyEditsRequest):
+    """一次套用刪除、排序與旋轉，產生新版本"""
+    pdf_path = _get_pdf_path(request.pdfId)
+
+    with processing_errors("套用頁面變更"):
+        new_path = PDFService.apply_page_edits(
+            pdf_path,
+            [(page.pageNumber, page.rotation) for page in request.pages],
+        )
+
+        return ApplyEditsResponse(
+            newPdfId=output_pdf_id(new_path),
+            pageCount=get_pdf_page_count(new_path),
+        )
+
+
+def _split_file(path: Path, label: str, page_count: int) -> SplitFile:
+    return SplitFile(
+        id=output_pdf_id(path),
+        label=label,
+        pageCount=page_count,
+        size=path.stat().st_size,
+    )
+
+
+@router.post("/extract", response_model=SplitResponse)
+def extract_pages(request: ExtractRequest):
+    """把指定頁面抽出成新的 PDF；原文件不變"""
+    pdf_path = _get_pdf_path(request.pdfId)
+
+    with processing_errors("抽出頁面"):
+        new_path = PDFService.apply_page_edits(
+            pdf_path,
+            [(page.pageNumber, page.rotation) for page in request.pages],
+            "extracted",
+        )
+        return SplitResponse(files=[
+            _split_file(new_path, "extract", len(request.pages))
+        ])
+
+
+@router.post("/split", response_model=SplitResponse)
+def split_pdf(request: SplitRequest):
+    """依頁碼範圍或固定頁數拆分成多個 PDF；原文件不變"""
+    pdf_path = _get_pdf_path(request.pdfId)
+
+    with processing_errors("拆分 PDF"):
+        total_pages = get_pdf_page_count(pdf_path)
+        if request.mode == "ranges":
+            groups = parse_page_ranges(request.ranges or "", total_pages)
+        else:
+            step = request.every or 1
+            groups = [
+                list(range(start, min(start + step, total_pages + 1)))
+                for start in range(1, total_pages + 1, step)
+            ]
+            if len(groups) < 2:
+                raise ValueError("每個檔案的頁數不小於總頁數，不需要拆分")
+
+        results = PDFService.split_pdf(pdf_path, groups)
+        return SplitResponse(files=[
+            _split_file(path, label, page_count)
+            for path, label, page_count in results
+        ])
 
 
 @router.post("/compress", response_model=CompressResponse)
