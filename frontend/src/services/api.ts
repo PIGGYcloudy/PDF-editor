@@ -2,8 +2,6 @@ import axios from 'axios';
 import type {
   UploadResponse,
   PagesResponse,
-  DeletePagesResponse,
-  ReorderPagesResponse,
   CompressResponse,
   CompressOptions,
   WatermarkResponse,
@@ -11,6 +9,10 @@ import type {
   ConvertResponse,
   ConvertDpi,
   ConvertFormat,
+  ApplyEditsResponse,
+  PageEditPayload,
+  SplitOptions,
+  SplitResponse,
   TextWatermarkConfig,
   ImageWatermarkConfig,
 } from '../types';
@@ -47,21 +49,33 @@ export async function getPages(pdfId: string, thumbnailSize: string = 'medium'):
   return response.data;
 }
 
-// 刪除頁面
-export async function deletePages(pdfId: string, pageNumbers: number[]): Promise<DeletePagesResponse> {
-  const response = await api.post<DeletePagesResponse>('/pdf/delete-pages', {
+// 一次套用刪除、排序與旋轉；pages 就是輸出的頁面與順序
+export async function applyEdits(
+  pdfId: string,
+  pages: PageEditPayload[],
+): Promise<ApplyEditsResponse> {
+  const response = await api.post<ApplyEditsResponse>('/pdf/apply-edits', {
     pdfId,
-    pageNumbers,
+    pages,
   });
   return response.data;
 }
 
-// 重新排序頁面
-export async function reorderPages(pdfId: string, pageOrder: number[]): Promise<ReorderPagesResponse> {
-  const response = await api.post<ReorderPagesResponse>('/pdf/reorder-pages', {
-    pdfId,
-    pageOrder,
-  });
+// 把指定頁面抽出成新的 PDF
+export async function extractPages(
+  pdfId: string,
+  pages: PageEditPayload[],
+): Promise<SplitResponse> {
+  const response = await api.post<SplitResponse>('/pdf/extract', { pdfId, pages });
+  return response.data;
+}
+
+// 依頁碼範圍或固定頁數拆分 PDF
+export async function splitPDF(
+  pdfId: string,
+  options: SplitOptions,
+): Promise<SplitResponse> {
+  const response = await api.post<SplitResponse>('/pdf/split', { pdfId, ...options });
   return response.data;
 }
 

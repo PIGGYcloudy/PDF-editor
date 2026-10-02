@@ -1,7 +1,7 @@
 import { Button, Grid, Paper, Typography } from '@mui/material';
 import {
+  CallSplit as SplitIcon,
   Compress as CompressIcon,
-  Delete as DeleteIcon,
   Download as DownloadIcon,
   Photo as PhotoIcon,
   Undo as UndoIcon,
@@ -9,12 +9,13 @@ import {
 } from '@mui/icons-material';
 import type { ReactNode } from 'react';
 
-export type ToolPanel = 'delete' | 'compress' | 'watermark' | 'convert';
+export type ToolPanel = 'split' | 'compress' | 'watermark' | 'convert';
 
 interface ToolBarProps {
   activePanel: ToolPanel | null;
-  selectedCount: number;
   canUndo: boolean;
+  /** 有尚未套用的頁面變更時，需要伺服器版本的功能暫時停用 */
+  hasPendingEdits: boolean;
   loading: boolean;
   onTogglePanel: (panel: ToolPanel) => void;
   onUndo: () => void;
@@ -23,8 +24,8 @@ interface ToolBarProps {
 
 function ToolBar({
   activePanel,
-  selectedCount,
   canUndo,
+  hasPendingEdits,
   loading,
   onTogglePanel,
   onUndo,
@@ -55,10 +56,10 @@ function ToolBar({
         功能
       </Typography>
       <Grid container spacing={2}>
-        {panelButton('delete', `刪除頁面 (${selectedCount})`, <DeleteIcon />, selectedCount === 0)}
-        {panelButton('compress', '壓縮 PDF', <CompressIcon />)}
-        {panelButton('watermark', '添加浮水印', <WatermarkIcon />)}
-        {panelButton('convert', '轉換為圖片', <PhotoIcon />)}
+        {panelButton('split', '拆分 PDF', <SplitIcon />, hasPendingEdits)}
+        {panelButton('compress', '壓縮 PDF', <CompressIcon />, hasPendingEdits)}
+        {panelButton('watermark', '添加浮水印', <WatermarkIcon />, hasPendingEdits)}
+        {panelButton('convert', '轉換為圖片', <PhotoIcon />, hasPendingEdits)}
         <Grid item xs={12} sm={6} md={4}>
           <Button
             fullWidth
@@ -67,7 +68,7 @@ function ToolBar({
             startIcon={<UndoIcon />}
             disabled={!canUndo || loading}
           >
-            復原上一步
+            {hasPendingEdits ? '復原頁面編輯' : '復原上一步'}
           </Button>
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
@@ -76,12 +77,18 @@ function ToolBar({
             variant="outlined"
             onClick={onSavePdf}
             startIcon={<DownloadIcon />}
-            disabled={loading}
+            disabled={loading || hasPendingEdits}
           >
             另存 PDF
           </Button>
         </Grid>
       </Grid>
+      {hasPendingEdits && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+          頁面有尚未套用的變更。請先在下方「套用變更」或「還原變更」，
+          才能使用拆分、壓縮、浮水印、轉換與另存。
+        </Typography>
+      )}
     </Paper>
   );
 }

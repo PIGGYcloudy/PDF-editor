@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   Alert,
   Box,
+  Chip,
   CircularProgress,
   Dialog,
   DialogContent,
@@ -22,6 +23,8 @@ interface PagePreviewDialogProps {
   /** 依目前顯示順序排列的頁碼 */
   pageNumbers: number[];
   pageNumber: number | null;
+  /** 尚未套用的旋轉角度；預覽顯示的是目前版本，這裡只用來提示 */
+  rotations?: Map<number, number>;
   onNavigate: (pageNumber: number) => void;
   onClose: () => void;
 }
@@ -30,6 +33,7 @@ function PagePreviewDialog({
   pdfId,
   pageNumbers,
   pageNumber,
+  rotations,
   onNavigate,
   onClose,
 }: PagePreviewDialogProps) {
@@ -40,6 +44,7 @@ function PagePreviewDialog({
   const url = pageNumber !== null ? getPagePreviewUrl(pdfId, pageNumber) : null;
   const index = pageNumber !== null ? pageNumbers.indexOf(pageNumber) : -1;
   const previous = index > 0 ? pageNumbers[index - 1] : undefined;
+  const pendingRotation = pageNumber !== null ? rotations?.get(pageNumber) ?? 0 : 0;
   const next = index >= 0 && index < pageNumbers.length - 1
     ? pageNumbers[index + 1]
     : undefined;
@@ -57,7 +62,7 @@ function PagePreviewDialog({
     >
       <DialogTitle sx={{ pr: 7 }}>
         <Stack direction="row" alignItems="center" spacing={1}>
-          <span>第 {pageNumber} 頁</span>
+          <span>第 {index + 1} 頁</span>
           <Tooltip title="上一頁">
             <span>
               <IconButton
@@ -80,6 +85,9 @@ function PagePreviewDialog({
               </IconButton>
             </span>
           </Tooltip>
+          {pendingRotation !== 0 && (
+            <Chip size="small" label={`已設定旋轉 ${pendingRotation}°（套用後生效）`} />
+          )}
         </Stack>
         <IconButton
           aria-label="關閉"
@@ -102,7 +110,7 @@ function PagePreviewDialog({
           <img
             key={url}
             src={url}
-            alt={`第 ${pageNumber} 頁預覽`}
+            alt={`第 ${index + 1} 頁預覽`}
             onLoad={() => setLoadedUrl(url)}
             onError={() => setFailedUrl(url)}
             style={{

@@ -9,8 +9,9 @@ import type { ToolPanel } from './components/ToolBar';
 import UploadZone from './components/UploadZone';
 import CompressPanel from './components/panels/CompressPanel';
 import ConvertPanel from './components/panels/ConvertPanel';
-import DeletePanel from './components/panels/DeletePanel';
+import SplitPanel from './components/panels/SplitPanel';
 import WatermarkPanel from './components/panels/WatermarkPanel';
+import { useEditorShortcuts } from './hooks/useEditorShortcuts';
 import { getSaveExtension, useFileSave } from './hooks/useFileSave';
 import { usePdfWorkspace } from './hooks/usePdfWorkspace';
 import { useStatus } from './hooks/useStatus';
@@ -33,7 +34,29 @@ function App() {
   });
 
   const { loading, error, success } = status;
-  const { currentFile, selectedPages } = workspace;
+  const { currentFile, selectedPages, hasEdits } = workspace;
+
+  useEditorShortcuts({
+    enabled: currentFile !== null
+      && previewPage === null
+      && saver.pendingRequest === null,
+    onDelete: () => {
+      if (!loading) workspace.removeSelectedPages();
+    },
+    onSelectAll: () => {
+      if (!loading) workspace.selectAllPages();
+    },
+    onClearSelection: workspace.clearSelection,
+    onUndo: () => {
+      if (!loading && workspace.canUndo) void workspace.undo();
+    },
+  });
+
+  /** 切換到其他文件前，確認使用者願意放棄尚未套用的頁面變更。 */
+  const confirmDiscardEdits = () => (
+    !hasEdits
+    || window.confirm('目前文件有尚未套用的頁面變更，離開後會遺失。確定要繼續嗎？')
+  );
 
   /** 操作成功後收起功能面板 */
   const closePanelOnSuccess = async (operation: Promise<boolean>) => {
@@ -47,17 +70,22 @@ function App() {
   );
 
   const handleUpload = (files: File[]) => {
+    if (!confirmDiscardEdits()) return;
     setActivePanel(null);
     void workspace.upload(files);
   };
 
   const handleOpen = (key: string) => {
+    if (!confirmDiscardEdits()) return;
     setActivePanel(null);
     void workspace.openFile(key);
   };
 
   const handleRemove = (file: WorkspaceFile) => {
-    if (!window.confirm(`確定要刪除「${file.name}」嗎？`)) {
+    const message = currentFile?.key === file.key && hasEdits
+      ? `確定要刪除「${file.name}」嗎？尚未套用的頁面變更也會一併遺失。`
+      : `確定要刪除「${file.name}」嗎？`;
+    if (!window.confirm(message)) {
       return;
     }
     if (currentFile?.key === file.key) {
@@ -95,8 +123,8 @@ function App() {
   };
 
   const panelVisible = (panel: ToolPanel) => ({
-    // 面板收起時保留輸入的設定
-    display: activePanel === panel ? 'block' : 'none',
+    // 面板收起時保留輸入的設定；有未套用的頁面變更時，需要伺服器版本的面板一律收起
+    display: activePanel === panel && !hasEdits ? 'block' : 'none',
   });
 
   return (
@@ -116,6 +144,7 @@ function App() {
           pdfId={currentFile.id}
           pageNumbers={workspace.pageOrder}
           pageNumber={previewPage}
+          rotations={workspace.rotations}
           onNavigate={setPreviewPage}
           onClose={() => setPreviewPage(null)}
         />
@@ -153,6 +182,7 @@ function App() {
             onRemove={handleRemove}
             onToggleMerge={workspace.toggleMerge}
             onMerge={() => {
+              if (!confirmDiscardEdits()) return;
               setActivePanel(null);
               void workspace.mergeSelectedFiles();
             }}
@@ -163,19 +193,19 @@ function App() {
           <>
             <ToolBar
               activePanel={activePanel}
-              selectedCount={selectedPages.size}
-              canUndo={currentFile.history.length > 0}
+              canUndo={workspace.canUndo}
+              hasPendingEdits={hasEdits}
               loading={loading}
               onTogglePanel={(panel) => setActivePanel(activePanel === panel ? null : panel)}
               onUndo={() => void workspace.undo()}
               onSavePdf={handleSavePdf}
             />
 
-            <Box sx={panelVisible('delete')}>
-              <DeletePanel
-                selectedCount={selectedPages.size}
+            <Box sx={panelVisible('split')}>
+              <SplitPanel
+                pageCount={currentFile.pageCount}
                 loading={loading}
-                onDelete={() => void closePanelOnSuccess(workspace.deleteSelectedPages())}
+                onSplit={(options) => void closePanelOnSuccess(workspace.split(options))}
               />
             </Box>
             <Box sx={panelVisible('compress')}>
@@ -206,12 +236,21 @@ function App() {
               <PageGrid
                 pages={workspace.pages}
                 order={workspace.pageOrder}
+                rotations={workspace.rotations}
                 selected={selectedPages}
                 loading={loading}
+                pendingSummary={hasEdits ? workspace.editSummary : null}
                 onToggle={workspace.togglePage}
+                onSelectAll={workspace.selectAllPages}
+                onClearSelection={workspace.clearSelection}
+                onInvertSelection={workspace.invertPageSelection}
+                onSelectParity={workspace.selectPagesByParity}
+                onRotate={workspace.rotatePages}
+                onDelete={workspace.removePages}
+                onExtract={() => void workspace.extractSelectedPages()}
                 onOrderChange={workspace.setPageOrder}
-                onApplyOrder={() => void workspace.applyPageOrder()}
-                onResetOrder={workspace.resetPageOrder}
+                onApply={() => void workspace.applyPageEdits()}
+                onDiscard={workspace.discardPageEdits}
                 onPreview={setPreviewPage}
               />
             )}

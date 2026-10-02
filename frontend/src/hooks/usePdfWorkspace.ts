@@ -1,15 +1,27 @@
-import { useReducer, useState } from 'react';
+import { useReducer, useRef, useState } from 'react';
 import {
   addImageWatermark,
   addTextWatermark,
+  applyEdits,
   compressPDF,
-  deletePages,
   deletePDF,
+  extractPages,
   getPages,
   mergePDFs,
-  reorderPages,
+  splitPDF,
   uploadPDF,
 } from '../services/api';
+import {
+  describeEdits,
+  hasPendingEdits,
+  initialPageEdits,
+  invertSelection,
+  pageEditsReducer,
+  pagesBetween,
+  pagesByParity,
+  summarizeEdits,
+} from '../state/pageEdits';
+import type { Rotation, StagedPage } from '../state/pageEdits';
 import {
   getCurrentFile,
   getMergeFiles,
@@ -21,6 +33,9 @@ import type {
   CompressOptions,
   ImageWatermarkConfig,
   Page,
+  PDFFile,
+  SplitFileInfo,
+  SplitOptions,
   TextWatermarkConfig,
 } from '../types';
 import type { Status, TaskResult } from './useStatus';
@@ -33,26 +48,70 @@ function discardVersions(ids: string[]): Promise<unknown> {
   return Promise.allSettled(ids.map((id) => deletePDF(id)));
 }
 
+const PENDING_EDITS_MESSAGE = '請先套用或還原頁面變更。';
+
+function baseName(filename: string): string {
+  return filename.replace(/\.pdf$/i, '') || 'document';
+}
+
+function toPdfFile(
+  info: Pick<SplitFileInfo, 'id' | 'pageCount' | 'size'>,
+  name: string,
+): PDFFile {
+  return {
+    id: info.id,
+    name,
+    size: info.size,
+    pageCount: info.pageCount,
+    uploadedAt: new Date().toISOString(),
+  };
+}
+
 export function usePdfWorkspace({ runTask, setError }: Status) {
   const [state, dispatch] = useReducer(workspaceReducer, initialWorkspace);
   const [pages, setPages] = useState<Page[]>([]);
-  // 使用者拖曳後尚未套用的頁面順序（原始頁碼）
-  const [pageOrder, setPageOrder] = useState<number[]>([]);
+  // 尚未套用的頁面編輯（刪除、排序、旋轉），頁面以原始頁碼識別
+  const [edits, dispatchEdits] = useReducer(pageEditsReducer, initialPageEdits);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
+  // Shift 點選範圍選取的起點
+  const selectionAnchor = useRef<number | null>(null);
 
   const currentFile = getCurrentFile(state);
   const mergeFiles = getMergeFiles(state);
+  const pageOrder = edits.pages.map((page) => page.pageNumber);
+  const rotations = new Map<number, Rotation>(
+    edits.pages.map((page) => [page.pageNumber, page.rotation]),
+  );
+  const hasEdits = hasPendingEdits(edits);
 
   const clearPages = () => {
     setPages([]);
-    setPageOrder([]);
+    dispatchEdits({ type: 'reset', pageNumbers: [] });
+    selectionAnchor.current = null;
   };
 
   const loadPages = async (pdfId: string) => {
     const response = await getPages(pdfId);
     setPages(response.pages);
-    setPageOrder(response.pages.map((page) => page.pageNumber));
+    dispatchEdits({
+      type: 'reset',
+      pageNumbers: response.pages.map((page) => page.pageNumber),
+    });
+    selectionAnchor.current = null;
   };
+
+  /** 需要以伺服器上的版本為準的操作，必須先處理未套用的頁面變更。 */
+  const blockedByPendingEdits = () => {
+    if (!hasEdits) {
+      return false;
+    }
+    setError(PENDING_EDITS_MESSAGE);
+    return true;
+  };
+
+  const toStagedPayload = (staged: StagedPage[]) => (
+    staged.map(({ pageNumber, rotation }) => ({ pageNumber, rotation }))
+  );
 
   /** 顯示新版本的頁面；失敗時設定錯誤訊息並回傳 false。 */
   const showVersion = async (
@@ -126,45 +185,107 @@ export function usePdfWorkspace({ runTask, setError }: Status) {
     }, '載入頁面資訊失敗。');
   };
 
-  const deleteSelectedPages = () => {
-    const pageNumbers = Array.from(selectedPages);
+  const applyPageEdits = () => {
+    const summary = describeEdits(summarizeEdits(edits));
     return editCurrentFile(
-      (pdfId) => deletePages(pdfId, pageNumbers),
-      (result) => ({ id: result.newPdfId, pageCount: result.remainingPages }),
+      (pdfId) => applyEdits(pdfId, toStagedPayload(edits.pages)),
+      (result) => ({ id: result.newPdfId, pageCount: result.pageCount }),
       {
-        success: (result) => `已刪除 ${pageNumbers.length} 個頁面，剩餘 ${result.remainingPages} 頁。`,
-        failure: '刪除頁面失敗。',
-        previewFailure: '頁面已刪除，但新版本預覽載入失敗。',
+        success: (result) => `已套用變更（${summary}），目前共 ${result.pageCount} 頁。`,
+        failure: '套用頁面變更失敗。',
+        previewFailure: '頁面變更已套用，但新版本預覽載入失敗。',
       },
       { clearSelection: true },
     );
   };
 
-  const applyPageOrder = () => editCurrentFile(
-    (pdfId) => reorderPages(pdfId, pageOrder),
-    (result) => ({ id: result.newPdfId, pageCount: result.pageCount }),
-    {
-      success: () => '頁面排序已更新！',
-      failure: '更新頁面排序失敗。',
-      previewFailure: '頁面排序已更新，但新版本預覽載入失敗。',
-    },
-    { clearSelection: true },
+  const discardPageEdits = () => dispatchEdits({ type: 'discard' });
+
+  const removePages = (pageNumbers: number[]) => {
+    const removable = pageNumbers.filter((pageNumber) => pageOrder.includes(pageNumber));
+    if (removable.length === 0) {
+      return;
+    }
+    if (removable.length >= pageOrder.length) {
+      setError('至少要保留一頁，無法刪除全部頁面。');
+      return;
+    }
+    dispatchEdits({ type: 'remove', pageNumbers: removable });
+    setSelectedPages((previous) => {
+      const next = new Set(previous);
+      removable.forEach((pageNumber) => next.delete(pageNumber));
+      return next;
+    });
+  };
+
+  const removeSelectedPages = () => removePages(Array.from(selectedPages));
+
+  const rotatePages = (pageNumbers: number[], delta: number) => {
+    if (pageNumbers.length > 0) {
+      dispatchEdits({ type: 'rotate', pageNumbers, delta });
+    }
+  };
+
+  const rotateSelectedPages = (delta: number) => rotatePages(
+    Array.from(selectedPages),
+    delta,
   );
 
-  const compress = (options: CompressOptions) => editCurrentFile(
-    (pdfId) => compressPDF(pdfId, options),
-    (result) => ({ id: result.newPdfId, size: result.compressedSize }),
-    {
-      success: (result) => {
-        const originalMB = (result.originalSize / 1024 / 1024).toFixed(2);
-        const compressedMB = (result.compressedSize / 1024 / 1024).toFixed(2);
-        return `壓縮成功！從 ${originalMB}MB 壓縮到 ${compressedMB}MB (${result.compressionRatio}% 壓縮比)`;
+  const setPageOrder = (order: number[]) => dispatchEdits({ type: 'reorder', order });
+
+  /** 把選取的頁面（依目前順序與旋轉）抽出成新檔案，原文件不變。 */
+  const extractSelectedPages = () => {
+    const file = currentFile;
+    const staged = edits.pages.filter((page) => selectedPages.has(page.pageNumber));
+    if (!file || staged.length === 0) {
+      setError('請先選取要抽出的頁面。');
+      return Promise.resolve(false);
+    }
+    return runTask(async () => {
+      const response = await extractPages(file.id, toStagedPayload(staged));
+      const [extracted] = response.files;
+      const name = `${baseName(file.name)}_extract.pdf`;
+      dispatch({ type: 'filesAdded', files: [toPdfFile(extracted, name)] });
+      return `已將 ${staged.length} 頁抽出成新檔案「${name}」，可在檔案列表開啟。`;
+    }, '抽出頁面失敗。');
+  };
+
+  const split = (options: SplitOptions) => {
+    const file = currentFile;
+    if (!file || blockedByPendingEdits()) {
+      return Promise.resolve(false);
+    }
+    return runTask(async () => {
+      const response = await splitPDF(file.id, options);
+      dispatch({
+        type: 'filesAdded',
+        files: response.files.map((info) => (
+          toPdfFile(info, `${baseName(file.name)}_p${info.label}.pdf`)
+        )),
+      });
+      return `已拆分成 ${response.files.length} 個檔案，可在檔案列表開啟。`;
+    }, '拆分 PDF 失敗。');
+  };
+
+  const compress = (options: CompressOptions) => {
+    if (blockedByPendingEdits()) {
+      return Promise.resolve(false);
+    }
+    return editCurrentFile(
+      (pdfId) => compressPDF(pdfId, options),
+      (result) => ({ id: result.newPdfId, size: result.compressedSize }),
+      {
+        success: (result) => {
+          const originalMB = (result.originalSize / 1024 / 1024).toFixed(2);
+          const compressedMB = (result.compressedSize / 1024 / 1024).toFixed(2);
+          return `壓縮成功！從 ${originalMB}MB 壓縮到 ${compressedMB}MB (${result.compressionRatio}% 壓縮比)`;
+        },
+        failure: '壓縮失敗。',
+        previewFailure: 'PDF 已壓縮，但新版本預覽載入失敗。',
       },
-      failure: '壓縮失敗。',
-      previewFailure: 'PDF 已壓縮，但新版本預覽載入失敗。',
-    },
-    { clearSelection: false },
-  );
+      { clearSelection: false },
+    );
+  };
 
   const selectedPageNumbers = () => (
     selectedPages.size > 0
@@ -179,6 +300,9 @@ export function usePdfWorkspace({ runTask, setError }: Status) {
   };
 
   const addTextWatermarkToCurrent = (config: TextWatermarkConfig) => {
+    if (blockedByPendingEdits()) {
+      return Promise.resolve(false);
+    }
     const pageNumbers = selectedPageNumbers();
     return editCurrentFile(
       (pdfId) => addTextWatermark(
@@ -197,6 +321,9 @@ export function usePdfWorkspace({ runTask, setError }: Status) {
     image: File,
     config: ImageWatermarkConfig,
   ) => {
+    if (blockedByPendingEdits()) {
+      return Promise.resolve(false);
+    }
     const pageNumbers = selectedPageNumbers();
     return editCurrentFile(
       (pdfId) => addImageWatermark(
@@ -212,7 +339,12 @@ export function usePdfWorkspace({ runTask, setError }: Status) {
     );
   };
 
+  /** 先復原尚未套用的頁面變更，沒有時才復原到上一個版本。 */
   const undo = () => {
+    if (edits.history.length > 0) {
+      dispatchEdits({ type: 'undo' });
+      return Promise.resolve(true);
+    }
     const file = currentFile;
     const previous = file?.history[file.history.length - 1];
     if (!file || !previous) {
@@ -274,7 +406,15 @@ export function usePdfWorkspace({ runTask, setError }: Status) {
     }, '刪除 PDF 失敗。');
   };
 
-  const togglePage = (pageNumber: number) => {
+  /** 切換頁面的選取；extend 為 true（Shift+點擊）時選取與上次點選之間的所有頁面。 */
+  const togglePage = (pageNumber: number, extend = false) => {
+    const anchor = selectionAnchor.current;
+    if (extend && anchor !== null && pageOrder.includes(anchor)) {
+      const range = pagesBetween(pageOrder, anchor, pageNumber);
+      setSelectedPages((previous) => new Set([...previous, ...range]));
+      return;
+    }
+    selectionAnchor.current = pageNumber;
     setSelectedPages((previous) => {
       const next = new Set(previous);
       if (next.has(pageNumber)) {
@@ -286,9 +426,20 @@ export function usePdfWorkspace({ runTask, setError }: Status) {
     });
   };
 
-  const resetPageOrder = () => {
-    setPageOrder(pages.map((page) => page.pageNumber));
+  const selectAllPages = () => setSelectedPages(new Set(pageOrder));
+
+  const clearSelection = () => {
+    selectionAnchor.current = null;
+    setSelectedPages(new Set());
   };
+
+  const invertPageSelection = () => setSelectedPages(
+    new Set(invertSelection(pageOrder, selectedPages)),
+  );
+
+  const selectPagesByParity = (parity: 'odd' | 'even') => setSelectedPages(
+    new Set(pagesByParity(pageOrder, parity)),
+  );
 
   return {
     files: state.files,
@@ -297,6 +448,10 @@ export function usePdfWorkspace({ runTask, setError }: Status) {
     mergeFiles,
     pages,
     pageOrder,
+    rotations,
+    hasEdits,
+    editSummary: describeEdits(summarizeEdits(edits)),
+    canUndo: edits.history.length > 0 || (currentFile?.history.length ?? 0) > 0,
     selectedPages,
     upload,
     openFile,
@@ -304,10 +459,19 @@ export function usePdfWorkspace({ runTask, setError }: Status) {
     toggleMerge: (key: string) => dispatch({ type: 'mergeToggled', key }),
     mergeSelectedFiles,
     togglePage,
+    selectAllPages,
+    clearSelection,
+    invertPageSelection,
+    selectPagesByParity,
     setPageOrder,
-    resetPageOrder,
-    applyPageOrder,
-    deleteSelectedPages,
+    rotatePages,
+    rotateSelectedPages,
+    removePages,
+    removeSelectedPages,
+    applyPageEdits,
+    discardPageEdits,
+    extractSelectedPages,
+    split,
     compress,
     addTextWatermark: addTextWatermarkToCurrent,
     addImageWatermark: addImageWatermarkToCurrent,

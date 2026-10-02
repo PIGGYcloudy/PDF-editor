@@ -77,6 +77,76 @@ class ReorderPagesResponse(BaseModel):
     pageCount: int
 
 
+# 套用頁面編輯（刪除、排序、旋轉）
+class PageEdit(BaseModel):
+    pageNumber: int = Field(..., ge=1, description="原始頁碼 (1-based)")
+    rotation: Literal[0, 90, 180, 270] = Field(
+        0, description="順時針旋轉角度，相對於目前的頁面方向"
+    )
+
+
+def _unique_page_numbers(pages: List[PageEdit]) -> List[PageEdit]:
+    page_numbers = [page.pageNumber for page in pages]
+    if len(page_numbers) != len(set(page_numbers)):
+        raise ValueError("頁面號碼不得重複")
+    return pages
+
+
+class ApplyEditsRequest(BaseModel):
+    pdfId: str
+    pages: List[PageEdit] = Field(
+        ...,
+        min_length=1,
+        description="輸出的頁面與順序；未列出的頁面會被刪除",
+    )
+
+    _validate_unique = field_validator("pages")(_unique_page_numbers)
+
+
+class ApplyEditsResponse(BaseModel):
+    newPdfId: str
+    pageCount: int
+
+
+class ExtractRequest(BaseModel):
+    pdfId: str
+    pages: List[PageEdit] = Field(
+        ..., min_length=1, description="要抽出成新檔案的頁面與順序"
+    )
+
+    _validate_unique = field_validator("pages")(_unique_page_numbers)
+
+
+class SplitRequest(BaseModel):
+    pdfId: str
+    mode: Literal["ranges", "every"] = Field(
+        ..., description="ranges：依頁碼範圍；every：每 N 頁一個檔案"
+    )
+    ranges: Optional[str] = Field(
+        None, max_length=500, description='例如 "1-3, 5, 8-10"，每段成為一個檔案'
+    )
+    every: Optional[int] = Field(None, ge=1, description="每個檔案的頁數")
+
+    @model_validator(mode="after")
+    def validate_mode_fields(self):
+        if self.mode == "ranges" and not (self.ranges and self.ranges.strip()):
+            raise ValueError("mode 為 ranges 時必須提供 ranges")
+        if self.mode == "every" and self.every is None:
+            raise ValueError("mode 為 every 時必須提供 every")
+        return self
+
+
+class SplitFile(BaseModel):
+    id: str
+    label: str
+    pageCount: int
+    size: int
+
+
+class SplitResponse(BaseModel):
+    files: List[SplitFile]
+
+
 # 壓縮請求
 class CompressRequest(BaseModel):
     pdfId: str
