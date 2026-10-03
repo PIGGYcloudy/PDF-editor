@@ -27,6 +27,7 @@ interface FileListProps {
   onRemove: (file: WorkspaceFile) => void;
   onToggleMerge: (key: string) => void;
   onMerge: () => void;
+  onDownload: () => void;
 }
 
 function FileList({
@@ -38,6 +39,7 @@ function FileList({
   onRemove,
   onToggleMerge,
   onMerge,
+  onDownload,
 }: FileListProps) {
   const mergeNames = mergeSelection
     .map((key) => files.find((file) => file.key === key)?.name)
@@ -54,22 +56,35 @@ function FileList({
           spacing={1}
           sx={{ mb: 1.5 }}
         >
-          <Box>
+          <Box sx={{ minWidth: 0 }}>
             <Typography variant="h6">PDF 檔案</Typography>
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
               {mergeNames.length > 0
                 ? `合併順序：${mergeNames.join(' → ')}`
-                : '勾選兩個以上的檔案即可合併，合併順序依勾選順序。'}
+                : '勾選檔案可打包下載 ZIP，或依勾選順序合併。'}
             </Typography>
           </Box>
-          <Button
-            variant="contained"
-            onClick={onMerge}
-            disabled={loading || mergeSelection.length < 2}
-            startIcon={<MergeIcon />}
-          >
-            合併選取的 PDF ({mergeSelection.length})
-          </Button>
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+            <Button variant="outlined" onClick={() => {
+              const allSelected = files.every((file) => mergeSelection.includes(file.key));
+              files.forEach((file) => {
+                if (allSelected || !mergeSelection.includes(file.key)) onToggleMerge(file.key);
+              });
+            }} disabled={loading}>
+              {mergeSelection.length === files.length ? '取消全選' : '全選檔案'}
+            </Button>
+            <Button variant="outlined" onClick={onDownload} disabled={loading || mergeSelection.length === 0}>
+              下載選取 ZIP ({mergeSelection.length})
+            </Button>
+            <Button
+              variant="contained"
+              onClick={onMerge}
+              disabled={loading || mergeSelection.length < 2}
+              startIcon={<MergeIcon />}
+            >
+              合併選取的 PDF ({mergeSelection.length})
+            </Button>
+          </Stack>
         </Stack>
       )}
       <Grid container spacing={2}>
@@ -144,7 +159,7 @@ function FileList({
                     )}
                     label={(
                       <Typography variant="caption">
-                        {mergeIndex >= 0 ? `合併第 ${mergeIndex + 1} 個` : '選取合併'}
+                        {mergeIndex >= 0 ? `已選取 · 順序 ${mergeIndex + 1}` : '選取檔案'}
                       </Typography>
                     )}
                   />

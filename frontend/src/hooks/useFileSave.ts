@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { convertToImage, downloadFile, downloadPDF } from '../services/api';
+import { convertToImage, downloadBundle, downloadFile, downloadPDF } from '../services/api';
 import type { ConvertDpi, ConvertFormat } from '../types';
 import {
   canUseNativeSaveFilePicker,
@@ -11,6 +11,7 @@ import type { FileDestination, NativeSaveFileOptions } from '../utils/fileSave';
 import type { Status } from './useStatus';
 
 export type SaveRequest =
+  | { kind: 'bundle'; suggestedName: string; files: { id: string; name: string }[] }
   | {
       kind: 'pdf';
       pdfId: string;
@@ -56,14 +57,15 @@ function getSaveFileOptions(request: SaveRequest): NativeSaveFileOptions {
 
   return {
     suggestedName: request.suggestedName,
-    description: '圖片 ZIP 壓縮檔',
+    description: request.kind === 'bundle' ? 'PDF ZIP 壓縮檔' : '圖片 ZIP 壓縮檔',
     mimeType: 'application/zip',
     extension: '.zip',
   };
 }
 
 function getSaveFailureMessage(request: SaveRequest): string {
-  return request.kind === 'pdf' ? '下載 PDF 失敗。' : '轉換或下載圖片失敗。';
+  return request.kind === 'pdf' ? '下載 PDF 失敗。'
+    : request.kind === 'bundle' ? '打包下載失敗，請確認選取的檔案尚未過期。' : '轉換或下載圖片失敗。';
 }
 
 function getSaveSuccessMessage(
@@ -71,6 +73,9 @@ function getSaveSuccessMessage(
   destination: FileDestination,
 ): string {
   const filename = getDestinationFilename(destination);
+  if (preparedSave.request.kind === 'bundle') {
+    return `${destination.kind === 'native' ? '已儲存' : '已開始下載'}「${filename}」，包含 ${preparedSave.request.files.length} 份 PDF。`;
+  }
   if (preparedSave.request.kind === 'pdf') {
     return destination.kind === 'native'
       ? `PDF 已儲存為「${filename}」。`
@@ -83,6 +88,9 @@ function getSaveSuccessMessage(
 }
 
 async function prepareSave(request: SaveRequest): Promise<PreparedSave> {
+  if (request.kind === 'bundle') {
+    return { request, blob: await downloadBundle(request.files) };
+  }
   if (request.kind === 'pdf') {
     return {
       request,

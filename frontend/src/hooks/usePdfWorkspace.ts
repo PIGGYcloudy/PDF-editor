@@ -1,4 +1,5 @@
-import { useReducer, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
+import { readSnapshot, writeSnapshot } from '../state/recovery';
 import {
   addImageWatermark,
   addTextWatermark,
@@ -79,11 +80,12 @@ function toPdfFile(
   };
 }
 
-export function usePdfWorkspace({ runTask, setError }: Status) {
-  const [state, dispatch] = useReducer(workspaceReducer, initialWorkspace);
-  const [pages, setPages] = useState<Page[]>([]);
+export function usePdfWorkspace({ runTask, setError, loading }: Status) {
+  const [recovered] = useState(readSnapshot);
+  const [state, dispatch] = useReducer(workspaceReducer, recovered?.workspace ?? initialWorkspace);
+  const [pages, setPages] = useState<Page[]>(recovered?.pages ?? []);
   // 尚未套用的頁面編輯（刪除、排序、旋轉），頁面以原始頁碼識別
-  const [edits, dispatchEdits] = useReducer(pageEditsReducer, initialPageEdits);
+  const [edits, dispatchEdits] = useReducer(pageEditsReducer, recovered?.edits ?? initialPageEdits);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   // Shift 點選範圍選取的起點
   const selectionAnchor = useRef<number | null>(null);
@@ -96,6 +98,38 @@ export function usePdfWorkspace({ runTask, setError }: Status) {
     edits.pages.map((page) => [page.pageNumber, page.rotation]),
   );
   const hasEdits = hasPendingEdits(edits);
+  const recoveryStarted = useRef(false);
+  const storageWarningShown = useRef(false);
+
+  useEffect(() => {
+    if (recoveryStarted.current || !recovered?.workspace.files.length) return;
+    recoveryStarted.current = true;
+    const file = getCurrentFile(recovered.workspace);
+    void runTask(async () => {
+      if (file) await getPages(file.id);
+      return '已恢復此分頁的工作區與頁面編輯。檔案仍有保留期限，完成後請另存。';
+    }, '工作區已恢復，但無法連線確認檔案。請稍後重新開啟文件。');
+  }, [recovered, runTask]);
+
+  useEffect(() => {
+    // Do not save intermediate state while a server operation changes versions.
+    if (loading) return;
+    const saved = writeSnapshot({ version: 1, workspace: state, pages, edits });
+    if (!saved && !storageWarningShown.current) {
+      storageWarningShown.current = true;
+      setError('瀏覽器無法暫存工作區，重新整理後將無法恢復。請先另存 PDF。');
+    }
+  }, [state, pages, edits, loading, setError]);
+
+  useEffect(() => {
+    if (!hasEdits && !loading) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [hasEdits, loading]);
 
   const clearPages = () => {
     setPages([]);
@@ -219,18 +253,23 @@ export function usePdfWorkspace({ runTask, setError }: Status) {
     }, '載入頁面資訊失敗。');
   };
 
-  const applyPageEdits = () => {
+  const applyPageEdits = async (): Promise<string | null> => {
+    if (!currentFile) return null;
+    if (!hasEdits) return currentFile.id;
+    let appliedId: string | null = null;
     const summary = describeEdits(summarizeEdits(edits));
-    return editCurrentFile(
-      (pdfId) => applyEdits(pdfId, toStagedPayload(edits.pages)),
-      (result) => ({ id: result.newPdfId, pageCount: result.pageCount }),
-      {
-        success: (result) => `已套用變更（${summary}），目前共 ${result.pageCount} 頁。`,
-        failure: '套用頁面變更失敗。',
-        previewFailure: '頁面變更已套用，但新版本預覽載入失敗。',
-      },
-      { clearSelection: true },
-    );
+    await runTask(async () => {
+      const result = await applyEdits(currentFile.id, toStagedPayload(edits.pages));
+      appliedId = result.newPdfId;
+      dispatch({ type: 'versionReplaced', key: currentFile.key,
+        version: { id: result.newPdfId, pageCount: result.pageCount } });
+      setSelectedPages(new Set());
+      if (!(await showVersion(result.newPdfId, '頁面變更已套用，但新版本預覽載入失敗。'))) {
+        return false;
+      }
+      return `已套用變更（${summary}），目前共 ${result.pageCount} 頁。`;
+    }, '套用頁面變更失敗。');
+    return appliedId;
   };
 
   const discardPageEdits = () => dispatchEdits({ type: 'discard' });

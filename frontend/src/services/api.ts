@@ -183,7 +183,12 @@ export async function downloadFile(filename: string): Promise<Blob> {
 
 // 刪除 PDF
 export async function deletePDF(pdfId: string): Promise<void> {
-  await api.delete(`/pdf/${pdfId}`);
+  try {
+    await api.delete(`/pdf/${pdfId}`);
+  } catch (error) {
+    // An expired file is already gone; allow removal from the local workspace.
+    if (!axios.isAxiosError(error) || error.response?.status !== 404) throw error;
+  }
 }
 
 // 合併 PDF
@@ -213,3 +218,9 @@ export async function downloadPDF(pdfId: string): Promise<Blob> {
 }
 
 export default api;
+
+/** Package current server versions with the names shown in the workspace. */
+export async function downloadBundle(files: { id: string; name: string }[]): Promise<Blob> {
+  const response = await api.post('/pdf/bundle', { files }, { responseType: 'blob' });
+  return response.data;
+}

@@ -62,3 +62,7 @@ coverage/
 *.tmp
 *.temp
 *.bak
+
+# Browser regression artifacts
+frontend/test-results/
+frontend/playwright-report/

@@ -123,6 +123,7 @@ function SortablePage({
   onPreview,
 }: SortablePageProps) {
   // 以實際渲染的縮圖計算長寬比；頁面本身帶有旋轉屬性時，與 MediaBox 不同
+  const [failedThumbnail, setFailedThumbnail] = useState<string | null>(null);
   const [naturalAspect, setNaturalAspect] = useState<number | null>(null);
   const aspect = naturalAspect
     ?? (page.width > 0 && page.height > 0 ? page.width / page.height : 0.707);
@@ -147,7 +148,7 @@ function SortablePage({
       {...attributes}
       {...listeners}
       aria-label={`第 ${position} 頁${rotation ? `，已旋轉 ${rotation} 度` : ''}${selected ? '，已選取' : ''}`}
-      onClick={(event) => onToggle(page.pageNumber, event.shiftKey)}
+      onClick={(event) => !disabled && onToggle(page.pageNumber, event.shiftKey)}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
@@ -246,7 +247,16 @@ function SortablePage({
           containerType: 'inline-size',
         }}
       >
-        {page.thumbnailUrl && (
+        {page.thumbnailUrl && failedThumbnail === page.thumbnailUrl && (
+          <Stack alignItems="center" spacing={1}>
+            <Typography variant="caption" color="text.secondary">縮圖載入失敗</Typography>
+            <Button size="small" onClick={(event) => {
+              event.stopPropagation();
+              setFailedThumbnail(null);
+            }}>重試</Button>
+          </Stack>
+        )}
+        {page.thumbnailUrl && failedThumbnail !== page.thumbnailUrl && (
           <img
             src={page.thumbnailUrl}
             alt={`第 ${position} 頁縮圖`}
@@ -260,9 +270,7 @@ function SortablePage({
                 setNaturalAspect(naturalWidth / naturalHeight);
               }
             }}
-            onError={(event) => {
-              event.currentTarget.style.visibility = 'hidden';
-            }}
+            onError={() => setFailedThumbnail(page.thumbnailUrl ?? null)}
           />
         )}
       </Box>

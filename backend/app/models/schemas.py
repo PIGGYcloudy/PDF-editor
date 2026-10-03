@@ -234,3 +234,12 @@ class ImagesToPdfResponse(BaseModel):
     name: str
     pageCount: int
     size: int
+
+
+class BundleFile(BaseModel):
+    id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1, max_length=255)
+
+
+class BundleRequest(BaseModel):
+    files: List[BundleFile] = Field(..., min_length=1, max_length=100)

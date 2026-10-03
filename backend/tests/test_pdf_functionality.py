@@ -1364,3 +1364,35 @@ def test_images_to_pdf_rejects_oversized_images(monkeypatch: pytest.MonkeyPatch)
 
     assert response.status_code == 400
     assert "尺寸太大" in response.json()["detail"]
+
+
+def test_bundle_preserves_pdf_bytes_and_safe_unique_names(isolated_storage):
+    source = create_sample_pdf(isolated_storage["outputs"] / f"source_{uuid.uuid4()}.pdf")
+    pdf_id = output_pdf_id(source)
+    names = ["報告.pdf", "報告.pdf", "../../escape.pdf", "REPORT.pdf", "report.pdf"]
+    with TestClient(app) as client:
+        response = client.post("/api/pdf/bundle", json={
+            "files": [{"id": pdf_id, "name": name} for name in names],
+        })
+    assert response.status_code == 200
+    with zipfile.ZipFile(BytesIO(response.content)) as archive:
+        entries = archive.namelist()
+        assert entries[:2] == ["報告.pdf", "報告 (2).pdf"]
+        assert len({name.casefold() for name in entries}) == len(names)
+        assert all("/" not in name and "\\" not in name for name in entries)
+        assert all(archive.read(name) == source.read_bytes() for name in entries)
+    assert not list(isolated_storage["outputs"].glob("bundle_*.zip"))
+    assert source.exists()
+
+
+def test_bundle_rejects_expired_files_without_leaving_archive(isolated_storage):
+    with TestClient(app) as client:
+        response = client.post("/api/pdf/bundle", json={
+            "files": [{"id": "missing", "name": "missing.pdf"}],
+        })
+        assert response.status_code == 404
+        assert client.post("/api/pdf/bundle", json={"files": []}).status_code == 422
+        assert client.post("/api/pdf/bundle", json={
+            "files": [{"id": "missing", "name": "file.pdf"}] * 101,
+        }).status_code == 422
+    assert not list(isolated_storage["outputs"].glob("bundle_*.zip"))

@@ -66,15 +66,15 @@ function ToolBar({
           variant="outlined"
           onClick={onSavePdf}
           startIcon={<DownloadIcon />}
-          disabled={loading || hasPendingEdits}
+          disabled={loading}
         >
-          另存 PDF
+          {hasPendingEdits ? '套用並另存 PDF' : '另存 PDF'}
         </Button>
       </Stack>
       {hasPendingEdits && (
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           頁面有尚未套用的變更。請先在下方「套用變更」或「還原變更」，
-          才能使用拆分、壓縮、浮水印、轉換與另存。
+          才能使用拆分、壓縮、浮水印與轉換；也可直接「套用並另存 PDF」。
         </Typography>
       )}
     </Paper>

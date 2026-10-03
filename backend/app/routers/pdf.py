@@ -4,15 +4,20 @@ PDF 處理路由
 import io
 import os
 import shutil
+import re
+import tempfile
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, Response
+from starlette.background import BackgroundTask
 from pypdf import PdfReader
 
 from app.config import OUTPUTS_DIR, MAX_UPLOAD_MB, MAX_UPLOAD_SIZE
 from app.models.schemas import (
+    BundleRequest,
     ApplyEditsRequest,
     ApplyEditsResponse,
     ExtractRequest,
@@ -454,3 +459,36 @@ def delete_pdf(pdf_id: str):
     # 其他請求或過期清理可能已先刪除檔案，這種情況不算錯誤。
     _get_pdf_path(pdf_id).unlink(missing_ok=True)
     return {"message": "檔案刪除成功"}
+
+
+@router.post("/bundle")
+def download_bundle(request: BundleRequest):
+    """Download selected versions together, with safe and unique workspace names."""
+    paths = [_get_pdf_path(file.id) for file in request.files]
+    with processing_errors("打包 PDF"):
+        with tempfile.NamedTemporaryFile(
+            dir=OUTPUTS_DIR, prefix="bundle_", suffix=".zip", delete=False,
+        ) as temporary:
+            zip_path = Path(temporary.name)
+        try:
+            used_names = set()
+            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as archive:
+                for file, path in zip(request.files, paths, strict=True):
+                    # Preserve readable Unicode names, never directories or control characters.
+                    name = re.sub(r'[\\/<>:"|?*\x00-\x1f\x7f]', "_", file.name).strip(" .")
+                    stem = (name[:-4] if name.lower().endswith(".pdf") else name) or "document"
+                    stem = stem[:180]
+                    name = f"{stem}.pdf"
+                    index = 2
+                    while name.casefold() in used_names:
+                        name = f"{stem} ({index}).pdf"
+                        index += 1
+                    used_names.add(name.casefold())
+                    archive.write(path, arcname=name)
+            return FileResponse(
+                zip_path, filename="pdf_files.zip", media_type="application/zip",
+                background=BackgroundTask(zip_path.unlink, missing_ok=True),
+            )
+        except Exception:
+            zip_path.unlink(missing_ok=True)
+            raise

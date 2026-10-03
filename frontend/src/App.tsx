@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Box, Container, Typography } from '@mui/material';
+import { Alert, Box, Container, LinearProgress, Typography } from '@mui/material';
 import FileList from './components/FileList';
 import PageGrid from './components/PageGrid';
 import PagePreviewDialog from './components/PagePreviewDialog';
@@ -114,12 +114,34 @@ function App() {
     });
   };
 
-  const handleSavePdf = () => {
+  const handleSavePdf = async () => {
     if (!currentFile) return;
-    void saver.beginSave({
+    const pdfId = hasEdits ? await workspace.applyPageEdits() : currentFile.id;
+    if (!pdfId) return;
+    await saver.beginSave({
       kind: 'pdf',
-      pdfId: currentFile.id,
+      pdfId,
       suggestedName: suggestedPdfName(currentFile),
+    });
+  };
+
+  const handleSaveBundle = async () => {
+    const files = workspace.mergeFiles;
+    if (!files.length) return;
+    if (files.length > 100) {
+      status.setError('每次最多打包 100 份 PDF，請減少選取的檔案。');
+      return;
+    }
+    let appliedId: string | null = null;
+    if (hasEdits && files.some((file) => file.key === currentFile?.key)) {
+      appliedId = await workspace.applyPageEdits();
+      if (!appliedId) return;
+    }
+    await saver.beginSave({ kind: 'bundle', suggestedName: 'pdf_files.zip',
+      files: files.map((file) => ({
+        id: file.key === currentFile?.key && appliedId ? appliedId : file.id,
+        name: suggestedPdfName(file),
+      })),
     });
   };
 
@@ -177,6 +199,12 @@ function App() {
           PDF 編輯器
         </Typography>
 
+        {loading && (
+          <Box role="status" sx={{ position: 'sticky', top: 0, zIndex: 10, bgcolor: 'background.paper', p: 1, mb: 2 }}>
+            <Typography variant="body2" sx={{ mb: 0.5 }}>正在處理文件，請稍候…</Typography>
+            <LinearProgress />
+          </Box>
+        )}
         {/* 錯誤和成功訊息 */}
         {error && (
           <Alert severity="error" sx={{ mb: 2 }} onClose={() => status.setError(null)}>
@@ -199,11 +227,17 @@ function App() {
         />
 
         {workspace.files.length > 0 && (
+          <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
+            此分頁會暫存工作區供重新整理後恢復；PDF 存放在伺服器且會過期，完成後請另存下載。
+          </Typography>
+        )}
+        {workspace.files.length > 0 && (
           <FileList
             files={workspace.files}
             currentKey={currentFile?.key ?? null}
             mergeSelection={workspace.mergeSelection}
             loading={loading}
+            onDownload={() => void handleSaveBundle()}
             onOpen={handleOpen}
             onRemove={handleRemove}
             onToggleMerge={workspace.toggleMerge}
@@ -224,7 +258,7 @@ function App() {
               loading={loading}
               onTogglePanel={(panel) => setActivePanel(activePanel === panel ? null : panel)}
               onUndo={() => void workspace.undo()}
-              onSavePdf={handleSavePdf}
+              onSavePdf={() => void handleSavePdf()}
             />
 
             <Box sx={panelVisible('split')}>
@@ -245,7 +279,7 @@ function App() {
             <Box sx={panelVisible('watermark')}>
               <WatermarkPanel
                 selectedCount={selectedPages.size}
-                previewPage={watermarkPreviewPage}
+                previewPage={activePanel === 'watermark' && !hasEdits ? watermarkPreviewPage : null}
                 loading={loading}
                 onAddText={(config) => void closePanelOnSuccess(workspace.addTextWatermark(config))}
                 onAddImage={(image, config) => void closePanelOnSuccess(

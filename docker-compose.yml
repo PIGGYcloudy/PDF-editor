@@ -6,7 +6,7 @@ services:
       dockerfile: Dockerfile
     ports:
       # 只綁定本機，瀏覽器透過前端的 /api 代理存取；需要時仍可在本機開啟 /docs
-      - "127.0.0.1:8000:7999"
+      - "127.0.0.1:${PDF_BACKEND_PORT:-8000}:7999"
     volumes:
       # 使用具名 volume，讓以非 root 身分執行的後端擁有寫入權限
       - uploads:/app/uploads
@@ -36,7 +36,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "8081:80"
+      - "${PDF_FRONTEND_PORT:-8081}:80"
     depends_on:
       backend:
         condition: service_healthy
