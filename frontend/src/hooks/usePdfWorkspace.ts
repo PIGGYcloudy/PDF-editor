@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { readSnapshot, writeSnapshot } from '../state/recovery';
+import type { DocumentDraft } from '../state/recovery';
 import {
   addImageWatermark,
   addTextWatermark,
@@ -23,20 +24,20 @@ import {
   pagesByParity,
   summarizeEdits,
 } from '../state/pageEdits';
-import type { Rotation, StagedPage } from '../state/pageEdits';
+import type { PageEditsAction, Rotation, StagedPage } from '../state/pageEdits';
 import {
   getCurrentFile,
   getMergeFiles,
   initialWorkspace,
   workspaceReducer,
 } from '../state/workspace';
-import type { PdfVersion } from '../state/workspace';
+import type { PdfVersion, WorkspaceAction, WorkspaceFile } from '../state/workspace';
 import type {
   CompressOptions,
   ImagePageSize,
   ImageWatermarkConfig,
-  Page,
   PDFFile,
+  Page,
   SplitFileInfo,
   SplitOptions,
   TextWatermarkConfig,
@@ -61,6 +62,8 @@ export interface CompressionResult {
   ratio: number;
 }
 
+const EMPTY_PAGES: Page[] = [];
+
 const PENDING_EDITS_MESSAGE = '請先套用或還原頁面變更。';
 
 function baseName(filename: string): string {
@@ -82,10 +85,23 @@ function toPdfFile(
 
 export function usePdfWorkspace({ runTask, setError, loading }: Status) {
   const [recovered] = useState(readSnapshot);
-  const [state, dispatch] = useReducer(workspaceReducer, recovered?.workspace ?? initialWorkspace);
-  const [pages, setPages] = useState<Page[]>(recovered?.pages ?? []);
-  // 尚未套用的頁面編輯（刪除、排序、旋轉），頁面以原始頁碼識別
-  const [edits, dispatchEdits] = useReducer(pageEditsReducer, recovered?.edits ?? initialPageEdits);
+  const [state, dispatchWorkspace] = useReducer(workspaceReducer, recovered?.workspace ?? initialWorkspace);
+  const [drafts, setDrafts] = useState<Record<string, DocumentDraft>>(() => {
+    const current = recovered && getCurrentFile(recovered.workspace);
+    return recovered?.drafts ?? (current ? {
+      [current.id]: { pages: recovered!.pages, edits: recovered!.edits },
+    } : {});
+  });
+  const dispatch = (action: WorkspaceAction) => {
+    // 新版本有自己的頁碼基準，舊版本的草稿不可再次套用。
+    if (action.type === 'versionReplaced' || action.type === 'versionRestored') {
+      const file = state.files.find((item) => item.key === action.key);
+      if (file) setDrafts((previous) => Object.fromEntries(
+        Object.entries(previous).filter(([id]) => id !== file.id),
+      ));
+    }
+    dispatchWorkspace(action);
+  };
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   // Shift 點選範圍選取的起點
   const selectionAnchor = useRef<number | null>(null);
@@ -93,6 +109,20 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
 
   const currentFile = getCurrentFile(state);
   const mergeFiles = getMergeFiles(state);
+  const pages = (currentFile && drafts[currentFile.id]?.pages) || EMPTY_PAGES;
+  const edits = (currentFile && drafts[currentFile.id]?.edits) || initialPageEdits;
+  const dispatchEdits = (action: PageEditsAction) => {
+    if (!currentFile) return;
+    const id = currentFile.id;
+    setDrafts((previous) => {
+      const draft = previous[id];
+      return draft ? { ...previous, [id]: { ...draft,
+        edits: pageEditsReducer(draft.edits, action) } } : previous;
+    });
+  };
+  const pendingFileKeys = state.files.filter((file) =>
+    drafts[file.id] && hasPendingEdits(drafts[file.id].edits)).map((file) => file.key);
+  const hasAnyEdits = pendingFileKeys.length > 0;
   const pageOrder = edits.pages.map((page) => page.pageNumber);
   const rotations = new Map<number, Rotation>(
     edits.pages.map((page) => [page.pageNumber, page.rotation]),
@@ -114,36 +144,34 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
   useEffect(() => {
     // Do not save intermediate state while a server operation changes versions.
     if (loading) return;
-    const saved = writeSnapshot({ version: 1, workspace: state, pages, edits });
+    const activeDrafts = Object.fromEntries(state.files
+      .filter((file) => drafts[file.id])
+      .map((file) => [file.id, drafts[file.id]]));
+    const saved = writeSnapshot({ version: 1, workspace: state, pages, edits, drafts: activeDrafts });
     if (!saved && !storageWarningShown.current) {
       storageWarningShown.current = true;
       setError('瀏覽器無法暫存工作區，重新整理後將無法恢復。請先另存 PDF。');
     }
-  }, [state, pages, edits, loading, setError]);
+  }, [state, pages, edits, drafts, loading, setError]);
 
   useEffect(() => {
-    if (!hasEdits && !loading) return;
+    if (!hasAnyEdits && !loading) return;
     const warn = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [hasEdits, loading]);
+  }, [hasAnyEdits, loading]);
 
-  const clearPages = () => {
-    setPages([]);
-    dispatchEdits({ type: 'reset', pageNumbers: [] });
-    selectionAnchor.current = null;
-  };
-
-  const loadPages = async (pdfId: string) => {
+  const loadPages = async (pdfId: string, preserveDraft = true) => {
     const response = await getPages(pdfId);
-    setPages(response.pages);
-    dispatchEdits({
-      type: 'reset',
-      pageNumbers: response.pages.map((page) => page.pageNumber),
-    });
+    setDrafts((previous) => ({ ...previous, [pdfId]: (preserveDraft ? previous[pdfId] : undefined) ?? {
+      pages: response.pages,
+      edits: pageEditsReducer(initialPageEdits, {
+        type: 'reset', pageNumbers: response.pages.map((page) => page.pageNumber),
+      }),
+    } }));
     selectionAnchor.current = null;
   };
 
@@ -165,7 +193,6 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
     pdfId: string,
     failureMessage: string,
   ): Promise<boolean> => {
-    clearPages();
     try {
       await loadPages(pdfId);
       return true;
@@ -431,7 +458,7 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
     }
     return runTask(async () => {
       // 先確認上一個版本仍在伺服器上（可能已過期），再切換狀態。
-      await loadPages(previous.id);
+      await loadPages(previous.id, false);
       dispatch({ type: 'versionRestored', key: file.key });
       setSelectedPages(new Set());
       // 復原後被取代的版本不會再用到。
@@ -440,13 +467,44 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
     }, '復原失敗，上一個版本可能已過期。');
   };
 
+  /** 批次輸出套用每份文件的草稿；失敗時保留尚未套用的編輯。 */
+  const applyFileDrafts = async (files: WorkspaceFile[]) => {
+    const results = [];
+    for (const file of files) {
+      const draft = drafts[file.id];
+      let id = file.id;
+      if (draft && hasPendingEdits(draft.edits)) {
+        const result = await applyEdits(id, toStagedPayload(draft.edits.pages));
+        id = result.newPdfId;
+        dispatch({ type: 'versionReplaced', key: file.key,
+          version: { id, pageCount: result.pageCount } });
+        if (file.key === currentFile?.key) {
+          setSelectedPages(new Set());
+          await showVersion(id, '變更已套用，但預覽載入失敗。');
+        }
+      }
+      results.push({ ...file, id });
+    }
+    return results;
+  };
+
+  const prepareBundle = async () => {
+    let files: WorkspaceFile[] | null = null;
+    await runTask(async () => {
+      files = await applyFileDrafts(mergeFiles);
+      return null;
+    }, '套用頁面變更失敗。');
+    return files as WorkspaceFile[] | null;
+  };
+
   const mergeSelectedFiles = () => {
     if (mergeFiles.length < 2) {
       setError('請至少選擇兩個 PDF 進行合併');
       return Promise.resolve(false);
     }
     return runTask(async () => {
-      const response = await mergePDFs(mergeFiles.map((file) => file.id));
+      const files = await applyFileDrafts(mergeFiles);
+      const response = await mergePDFs(files.map((file) => file.id));
       dispatch({
         type: 'filesAdded',
         files: [{
@@ -477,8 +535,9 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
       // 供復原用的舊版本也一併刪除。
       await discardVersions(file.history.map((version) => version.id));
       dispatch({ type: 'fileRemoved', key });
+      setDrafts((previous) => Object.fromEntries(Object.entries(previous)
+        .filter(([id]) => id !== file.id && !file.history.some((version) => version.id === id))));
       if (state.currentKey === key) {
-        clearPages();
         setSelectedPages(new Set());
       }
       return 'PDF 檔案刪除成功！';
@@ -522,6 +581,8 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
 
   return {
     files: state.files,
+    pendingFileKeys,
+    prepareBundle,
     currentFile,
     mergeSelection: state.mergeSelection,
     mergeFiles,

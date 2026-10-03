@@ -3,8 +3,14 @@ import type { PageEditsState, StagedPage } from './pageEdits';
 import type { PdfVersion, WorkspaceState } from './workspace';
 
 const STORAGE_KEY = 'pdf-editor.workspace.v1';
+export interface DocumentDraft {
+  pages: Page[];
+  edits: PageEditsState;
+}
+
 export interface WorkspaceSnapshot {
   version: 1;
+  drafts?: Record<string, DocumentDraft>;
   workspace: WorkspaceState;
   pages: Page[];
   edits: PageEditsState;
@@ -58,6 +64,21 @@ export function parseSnapshot(raw: string | null): WorkspaceSnapshot | null {
         ? `/api/pdf/thumbnail/${encodeURIComponent(current.id)}/page/${page.pageNumber}?size=medium`
         : undefined,
     }));
+    if (value.drafts !== undefined) {
+      if (!record(value.drafts)) return null;
+      const drafts: Record<string, DocumentDraft> = {};
+      for (const [id, draft] of Object.entries(value.drafts)) {
+        const file = snapshot.workspace.files.find((item) => item.id === id);
+        if (!file || !record(draft)) return null;
+        const validated = parseSnapshot(JSON.stringify({ version: 1,
+          workspace: { ...workspace, currentKey: file.key },
+          pages: draft.pages, edits: draft.edits,
+        }));
+        if (!validated) return null;
+        drafts[id] = { pages: validated.pages, edits: validated.edits };
+      }
+      snapshot.drafts = drafts;
+    }
     return snapshot;
   } catch {
     return null;

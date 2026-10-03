@@ -53,12 +53,6 @@ function App() {
     },
   });
 
-  /** 切換到其他文件前，確認使用者願意放棄尚未套用的頁面變更。 */
-  const confirmDiscardEdits = () => (
-    !hasEdits
-    || window.confirm('目前文件有尚未套用的頁面變更，離開後會遺失。確定要繼續嗎？')
-  );
-
   /** 操作成功後收起功能面板 */
   const closePanelOnSuccess = async (operation: Promise<boolean>) => {
     if (await operation) {
@@ -71,19 +65,17 @@ function App() {
   );
 
   const handleUpload = (files: File[]) => {
-    if (!confirmDiscardEdits()) return;
     setActivePanel(null);
     void workspace.upload(files, imagePageSize);
   };
 
   const handleOpen = (key: string) => {
-    if (!confirmDiscardEdits()) return;
     setActivePanel(null);
     void workspace.openFile(key);
   };
 
   const handleRemove = (file: WorkspaceFile) => {
-    const message = currentFile?.key === file.key && hasEdits
+    const message = workspace.pendingFileKeys.includes(file.key)
       ? `確定要刪除「${file.name}」嗎？尚未套用的頁面變更也會一併遺失。`
       : `確定要刪除「${file.name}」嗎？`;
     if (!window.confirm(message)) {
@@ -132,16 +124,10 @@ function App() {
       status.setError('每次最多打包 100 份 PDF，請減少選取的檔案。');
       return;
     }
-    let appliedId: string | null = null;
-    if (hasEdits && files.some((file) => file.key === currentFile?.key)) {
-      appliedId = await workspace.applyPageEdits();
-      if (!appliedId) return;
-    }
+    const prepared = await workspace.prepareBundle();
+    if (!prepared) return;
     await saver.beginSave({ kind: 'bundle', suggestedName: 'pdf_files.zip',
-      files: files.map((file) => ({
-        id: file.key === currentFile?.key && appliedId ? appliedId : file.id,
-        name: suggestedPdfName(file),
-      })),
+      files: prepared.map((file) => ({ id: file.id, name: suggestedPdfName(file) })),
     });
   };
 
@@ -234,6 +220,7 @@ function App() {
         {workspace.files.length > 0 && (
           <FileList
             files={workspace.files}
+            pendingFileKeys={workspace.pendingFileKeys}
             currentKey={currentFile?.key ?? null}
             mergeSelection={workspace.mergeSelection}
             loading={loading}
@@ -242,7 +229,6 @@ function App() {
             onRemove={handleRemove}
             onToggleMerge={workspace.toggleMerge}
             onMerge={() => {
-              if (!confirmDiscardEdits()) return;
               setActivePanel(null);
               void workspace.mergeSelectedFiles();
             }}

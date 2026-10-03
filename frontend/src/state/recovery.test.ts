@@ -52,3 +52,21 @@ describe('workspace recovery', () => {
       .toBe('/api/pdf/thumbnail/version2/page/1?size=medium');
   });
 });
+
+describe('multiple document recovery', () => {
+  it('validates background drafts and reconstructs their own image URLs', () => {
+    const value = snapshot();
+    value.workspace.files.push({ key: 'b', id: 'other', name: 'other.pdf',
+      size: 100, pageCount: 3, history: [] });
+    value.drafts = {
+      version2: { pages: value.pages, edits: value.edits },
+      other: { pages: value.pages, edits: value.edits },
+    };
+    const restored = parseSnapshot(JSON.stringify(value))!;
+    expect(restored.drafts?.other.pages[0].thumbnailUrl)
+      .toBe('/api/pdf/thumbnail/other/page/1?size=medium');
+    expect(restored.drafts?.other.edits.history).toEqual(value.edits.history);
+    value.drafts.other.edits = { ...value.edits, pages: [{ pageNumber: 99, rotation: 0 }] };
+    expect(parseSnapshot(JSON.stringify(value))).toBeNull();
+  });
+});

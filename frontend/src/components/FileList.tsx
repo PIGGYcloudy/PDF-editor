@@ -20,6 +20,7 @@ import type { WorkspaceFile } from '../state/workspace';
 interface FileListProps {
   files: WorkspaceFile[];
   currentKey: string | null;
+  pendingFileKeys: string[];
   /** 依勾選順序排列的文件 key */
   mergeSelection: string[];
   loading: boolean;
@@ -33,6 +34,7 @@ interface FileListProps {
 function FileList({
   files,
   currentKey,
+  pendingFileKeys,
   mergeSelection,
   loading,
   onOpen,
@@ -145,6 +147,7 @@ function FileList({
                 >
                   <Typography variant="caption" color="text.secondary">
                     {file.pageCount} 頁
+                    {pendingFileKeys.includes(file.key) && ' · 尚未套用變更'}
                     {file.history.length > 0 && ` · 已編輯 ${file.history.length} 次`}
                   </Typography>
                   <FormControlLabel
