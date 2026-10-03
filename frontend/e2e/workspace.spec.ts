@@ -102,8 +102,11 @@ test('split files can be downloaded together as one ZIP', async ({ page }, testI
   await page.getByRole('button', { name: '拆分 PDF', exact: true }).last().click();
   await expect(page.getByText(/已拆分成 2 個檔案/)).toBeVisible();
   // The original plus both generated files can be selected in one action.
+  await page.getByRole('tab', { name: '合併 PDF', exact: true }).click();
   await page.getByRole('button', { name: '全選檔案', exact: true }).click();
+  await page.getByRole('tab', { name: '編輯 PDF', exact: true }).click();
   await page.getByRole('button', { name: '向右旋轉第 1 頁', exact: true }).click();
+  await page.getByRole('tab', { name: '合併 PDF', exact: true }).click();
   const originalId = (await snapshot(page)).workspace.files[0].id;
   const bundleRequest = page.waitForRequest((req) => req.url().endsWith('/api/pdf/bundle'));
   await page.getByRole('button', { name: '下載選取 ZIP (3)', exact: true }).click();

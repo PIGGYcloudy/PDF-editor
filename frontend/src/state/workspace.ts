@@ -40,6 +40,7 @@ export type WorkspaceAction =
   | { type: 'versionRestored'; key: string }
   | { type: 'fileRemoved'; key: string }
   | { type: 'mergeToggled'; key: string }
+  | { type: 'mergeReordered'; keys: string[] }
   | { type: 'mergeCleared' };
 
 export const initialWorkspace: WorkspaceState = {
@@ -120,6 +121,10 @@ export function workspaceReducer(
           ? state.mergeSelection.filter((key) => key !== action.key)
           : [...state.mergeSelection, action.key],
       };
+
+    case 'mergeReordered':
+      return { ...state, mergeSelection: action.keys.filter((key, index) =>
+        state.mergeSelection.includes(key) && action.keys.indexOf(key) === index) };
 
     case 'mergeCleared':
       return { ...state, mergeSelection: [] };

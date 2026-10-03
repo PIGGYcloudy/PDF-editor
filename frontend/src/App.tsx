@@ -1,5 +1,6 @@
+import MergeWorkspace from './components/MergeWorkspace';
 import { useState } from 'react';
-import { Alert, Box, Container, LinearProgress, Typography } from '@mui/material';
+import { Alert, Box, Container, LinearProgress, Tab, Tabs, Typography } from '@mui/material';
 import FileList from './components/FileList';
 import PageGrid from './components/PageGrid';
 import PagePreviewDialog from './components/PagePreviewDialog';
@@ -23,6 +24,7 @@ import {
 } from './utils/fileSave';
 
 function App() {
+  const [view, setView] = useState<'edit' | 'merge'>('edit');
   const status = useStatus();
   const workspace = usePdfWorkspace(status);
   const [activePanel, setActivePanel] = useState<ToolPanel | null>(null);
@@ -38,7 +40,7 @@ function App() {
   const { currentFile, selectedPages, hasEdits } = workspace;
 
   useEditorShortcuts({
-    enabled: currentFile !== null
+    enabled: view === 'edit' && currentFile !== null
       && previewPage === null
       && saver.pendingRequest === null,
     onDelete: () => {
@@ -65,8 +67,8 @@ function App() {
   );
 
   const handleUpload = (files: File[]) => {
-    setActivePanel(null);
-    void workspace.upload(files, imagePageSize);
+    if (view === 'edit') setActivePanel(null);
+    void workspace.upload(files, imagePageSize, view === 'merge');
   };
 
   const handleOpen = (key: string) => {
@@ -203,6 +205,11 @@ function App() {
           </Alert>
         )}
 
+        <Tabs value={view} onChange={(_, value) => setView(value)} aria-label="PDF 工作區" sx={{ mb: 2 }}>
+          <Tab value="edit" label="編輯 PDF" id="edit-tab" aria-controls="edit-panel" disabled={loading} />
+          <Tab value="merge" label="合併 PDF" id="merge-tab" aria-controls="merge-panel" disabled={loading} />
+        </Tabs>
+
         <UploadZone
           compact={workspace.files.length > 0}
           imagePageSize={imagePageSize}
@@ -217,26 +224,21 @@ function App() {
             此分頁會暫存工作區供重新整理後恢復；PDF 存放在伺服器且會過期，完成後請另存下載。
           </Typography>
         )}
+        <Box role="tabpanel" id="merge-panel" aria-labelledby="merge-tab" hidden={view !== 'merge'}>
+          <MergeWorkspace workspace={workspace} loading={loading}
+            onEdit={(key) => { handleOpen(key); setView('edit'); }}
+            onSave={(file) => void saver.beginSave({ kind: 'pdf', pdfId: file.id, suggestedName: suggestedPdfName(file) })}
+            onBundle={() => void handleSaveBundle()} />
+        </Box>
+        <Box role="tabpanel" id="edit-panel" aria-labelledby="edit-tab" hidden={view !== 'edit'}>
         {workspace.files.length > 0 && (
-          <FileList
-            files={workspace.files}
-            pendingFileKeys={workspace.pendingFileKeys}
-            currentKey={currentFile?.key ?? null}
-            mergeSelection={workspace.mergeSelection}
-            loading={loading}
-            onDownload={() => void handleSaveBundle()}
-            onOpen={handleOpen}
-            onRemove={handleRemove}
-            onToggleMerge={workspace.toggleMerge}
-            onMerge={() => {
-              setActivePanel(null);
-              void workspace.mergeSelectedFiles();
-            }}
-          />
+          <FileList files={workspace.files} pendingFileKeys={workspace.pendingFileKeys}
+            currentKey={currentFile?.key ?? null} loading={loading} onOpen={handleOpen} onRemove={handleRemove} />
         )}
 
         {currentFile && (
           <>
+            <Typography variant="subtitle1" sx={{ mb: 1, overflowWrap: 'anywhere' }}>正在編輯：{currentFile.name}</Typography>
             <ToolBar
               activePanel={activePanel}
               canUndo={workspace.canUndo}
@@ -305,6 +307,7 @@ function App() {
             )}
           </>
         )}
+        </Box>
       </Container>
     </Box>
   );

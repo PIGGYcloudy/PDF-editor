@@ -1,3 +1,5 @@
+import { parseMergePages } from '../utils/mergePages';
+import { normalizeDownloadFilename } from '../utils/fileSave';
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { readSnapshot, writeSnapshot } from '../state/recovery';
 import type { DocumentDraft } from '../state/recovery';
@@ -102,6 +104,7 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
     }
     dispatchWorkspace(action);
   };
+  const [mergeResult, setMergeResult] = useState<WorkspaceFile | null>(null);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   // Shift 點選範圍選取的起點
   const selectionAnchor = useRef<number | null>(null);
@@ -233,7 +236,7 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
   };
 
   /** 上傳 PDF；圖片會依檔名順序合成一份新的 PDF，每張圖片一頁。 */
-  const upload = (files: File[], imagePageSize: ImagePageSize = 'a4') => runTask(async () => {
+  const upload = (files: File[], imagePageSize: ImagePageSize = 'a4', preserveCurrent = false) => runTask(async () => {
     const pdfs = files.filter(isPdfFile);
     const images = sortByNameNatural(files.filter((file) => !isPdfFile(file)));
     const added: PDFFile[] = [];
@@ -252,7 +255,7 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
     }
 
     const firstFile = added[0];
-    if (firstFile) {
+    if (firstFile && !preserveCurrent) {
       dispatch({ type: 'currentChanged', key: firstFile.id });
       setSelectedPages(new Set());
       if (!(await showVersion(firstFile.id, '檔案已上傳，但頁面預覽載入失敗。'))) {
@@ -497,31 +500,39 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
     return files as WorkspaceFile[] | null;
   };
 
-  const mergeSelectedFiles = () => {
+  const mergeSelectedFiles = (name = '合併文件.pdf', ranges: Record<string, string> = {}) => {
     if (mergeFiles.length < 2) {
       setError('請至少選擇兩個 PDF 進行合併');
       return Promise.resolve(false);
     }
+    setMergeResult(null);
     return runTask(async () => {
-      const files = await applyFileDrafts(mergeFiles);
-      const response = await mergePDFs(files.map((file) => file.id));
-      dispatch({
-        type: 'filesAdded',
-        files: [{
-          id: response.newPdfId,
-          name: response.name,
-          size: 0,
-          pageCount: response.pageCount,
-          uploadedAt: new Date().toISOString(),
-        }],
-      });
-      dispatch({ type: 'mergeCleared' });
-      dispatch({ type: 'currentChanged', key: response.newPdfId });
-      setSelectedPages(new Set());
-      if (!(await showVersion(response.newPdfId, 'PDF 已合併，但新檔案預覽載入失敗。'))) {
-        return false;
+      // Validate every range before applying drafts or creating temporary files.
+      const selections = mergeFiles.map((file) => parseMergePages(ranges[file.key] ?? '',
+        drafts[file.id]?.edits.pages.length ?? file.pageCount));
+      const temporaryIds: string[] = [];
+      try {
+        const files = await applyFileDrafts(mergeFiles);
+        const ids: string[] = [];
+        for (const [index, file] of files.entries()) {
+          if (ranges[file.key]?.trim()) {
+            const extracted = await extractPages(file.id, selections[index].map((pageNumber) => ({ pageNumber, rotation: 0 })));
+            const id = extracted.files[0].id;
+            temporaryIds.push(id);
+            ids.push(id);
+          } else {
+            ids.push(file.id);
+          }
+        }
+        const response = await mergePDFs(ids);
+        const file = toPdfFile({ id: response.newPdfId, size: 0, pageCount: response.pageCount },
+          normalizeDownloadFilename(name, '.pdf', '合併文件'));
+        dispatch({ type: 'filesAdded', files: [file] });
+        setMergeResult({ ...file, key: file.id, history: [] });
+        return 'PDF 合併成功！';
+      } finally {
+        await discardVersions(temporaryIds);
       }
-      return 'PDF 合併成功！';
     }, '合併 PDF 失敗。');
   };
 
@@ -581,6 +592,9 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
 
   return {
     files: state.files,
+    mergeResult,
+    mergePageCounts: Object.fromEntries(state.files.map((file) => [file.key, drafts[file.id]?.edits.pages.length ?? file.pageCount])),
+    reorderMerge: (keys: string[]) => dispatch({ type: 'mergeReordered', keys }),
     pendingFileKeys,
     prepareBundle,
     currentFile,
