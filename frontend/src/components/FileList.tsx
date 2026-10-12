@@ -10,8 +10,8 @@ interface Props {
   onRemove: (file: WorkspaceFile) => void;
 }
 export default function FileList({ files, currentKey, pendingFileKeys, loading, onOpen, onRemove }: Props) {
-  return <Paper sx={{ p: 2, mb: 2 }}>
-    <Typography variant="subtitle2" sx={{ mb: 1 }}>選擇要編輯的 PDF</Typography>
+  return <Paper component="section" aria-label="文件列表" sx={{ p: 2, mb: 2, bgcolor: 'rgba(255,255,255,.8)' }}>
+    <Typography variant="subtitle2" sx={{ mb: 1.5 }}>選擇要編輯的 PDF <Typography component="span" variant="caption" color="text.secondary">· {files.length} 份</Typography></Typography>
     <Stack direction="row" useFlexGap flexWrap="wrap" gap={1}>
       {files.map((file) => <Stack key={file.key} direction="row" alignItems="center" sx={{ maxWidth: '100%' }}>
         <Button startIcon={<PictureAsPdf />} variant={currentKey === file.key ? 'contained' : 'outlined'}

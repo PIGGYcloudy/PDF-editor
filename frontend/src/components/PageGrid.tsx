@@ -140,6 +140,7 @@ function SortablePage({
 
   return (
     <Box
+      className="page-card"
       // 以整張卡片作為拖曳觸發點；卡片內的核取方塊與按鈕按鍵不會誤觸拖曳
       ref={(node: HTMLElement | null) => {
         setNodeRef(node);
@@ -156,18 +157,17 @@ function SortablePage({
         position: 'relative',
       }}
       sx={{
-        border: selected ? '3px solid #1976d2' : '2px solid #ddd',
-        borderRadius: 2,
+        border: selected ? '2px solid #0067d9' : '2px solid #e0e6ee',
+        borderRadius: 3,
         p: 1,
         textAlign: 'center',
-        bgcolor: selected ? '#e3f2fd' : '#fff',
+        bgcolor: selected ? '#edf4ff' : '#f8fafc',
         cursor: disabled ? 'default' : isDragging ? 'grabbing' : 'grab',
         opacity: isDragging ? 0.8 : 1,
         boxShadow: isDragging ? 4 : 0,
         userSelect: 'none',
         '&:hover': { boxShadow: isDragging ? 4 : 2 },
-        '&:hover .page-actions, &:focus-within .page-actions': { opacity: 1 },
-        '&:focus-visible': { outline: '3px solid #90caf9', outlineOffset: 2 },
+        '&:focus-visible': { outline: '3px solid #0067d9', outlineOffset: 2 },
       }}
     >
       <Stack
@@ -175,18 +175,14 @@ function SortablePage({
         spacing={0.25}
         className="page-actions"
         sx={{
-          position: 'absolute',
-          top: 8,
-          right: 8,
-          zIndex: 1,
+          width: 'fit-content',
+          ml: 'auto',
+          mb: 1,
           p: 0.25,
-          borderRadius: 1,
+          borderRadius: 3,
           bgcolor: 'rgba(255, 255, 255, 0.92)',
           boxShadow: 1,
-          // 觸控裝置沒有 hover，工具列一律顯示
-          opacity: 0,
-          transition: 'opacity 0.15s',
-          '@media (hover: none)': { opacity: 1 },
+          // 操作保持可見並放在縮圖上方，避免遮住文件內容。
         }}
       >
         <Tooltip title="向左旋轉">
@@ -375,12 +371,12 @@ function PageGrid({
   };
 
   return (
-    <Paper sx={{ p: 3 }}>
+    <Paper sx={{ p: { xs: 2, sm: 3 } }}>
       <Box sx={{ mb: 2 }}>
         <Typography variant="h6">頁面預覽 ({order.length} 頁)</Typography>
         <Typography variant="body2" color="text.secondary">
           點擊選取（Shift+點擊選取範圍），拖曳調整順序（觸控裝置請長按後拖曳），
-          滑過頁面可旋轉或刪除。變更會先暫存，按「套用變更」才會產生新版本。
+          使用頁面上方的按鈕旋轉或刪除。變更會先暫存，按「套用變更」才會產生新版本。
         </Typography>
       </Box>
 
@@ -388,7 +384,7 @@ function PageGrid({
         <Alert
           severity="info"
           // 頁面很多時，套用按鈕仍留在視線內
-          sx={{ mb: 2, position: 'sticky', top: 8, zIndex: 3, alignItems: 'center' }}
+          sx={{ mb: 2, position: 'sticky', top: 8, zIndex: 3, alignItems: 'center', flexWrap: { xs: 'wrap', sm: 'nowrap' }, '& .MuiAlert-action': { ml: { xs: 0, sm: 'auto' }, pl: { xs: 0, sm: 2 }, pb: 1 } }}
           action={(
             <Stack direction="row" spacing={1}>
               <Button color="inherit" size="small" onClick={onDiscard} disabled={loading}>
@@ -483,7 +479,7 @@ function PageGrid({
               const page = pagesByNumber.get(pageNumber);
               if (!page) return null;
               return (
-                <Grid item xs={6} sm={4} md={3} lg={2} key={pageNumber}>
+                <Grid item xs={12} sm={6} md={4} lg={3} xl={2} key={pageNumber}>
                   <SortablePage
                     page={page}
                     position={index + 1}

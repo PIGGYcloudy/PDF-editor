@@ -1,6 +1,8 @@
 import MergeWorkspace from './components/MergeWorkspace';
 import { useState } from 'react';
-import { Alert, Box, Container, LinearProgress, Tab, Tabs, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, Container, LinearProgress, Paper, Stack, Tab, Tabs, Typography } from '@mui/material';
+import { CheckCircleOutline, HelpOutline, PictureAsPdfOutlined } from '@mui/icons-material';
+import HelpDialog from './components/HelpDialog';
 import FileList from './components/FileList';
 import PageGrid from './components/PageGrid';
 import PagePreviewDialog from './components/PagePreviewDialog';
@@ -30,6 +32,11 @@ function App() {
   const [activePanel, setActivePanel] = useState<ToolPanel | null>(null);
   const [previewPage, setPreviewPage] = useState<number | null>(null);
   const [imagePageSize, setImagePageSize] = useState<ImagePageSize>('a4');
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [reduceTransparency, setReduceTransparency] = useState(() => {
+    try { return localStorage.getItem('pdf-editor.reduce-transparency') === 'true'; }
+    catch { return false; }
+  });
   const saver = useFileSave(status, (request) => {
     if (request.kind === 'images') {
       setActivePanel(null);
@@ -41,6 +48,7 @@ function App() {
 
   useEditorShortcuts({
     enabled: view === 'edit' && currentFile !== null
+      && !helpOpen
       && previewPage === null
       && saver.pendingRequest === null,
     onDelete: () => {
@@ -156,7 +164,14 @@ function App() {
   });
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#f5f5f5' }}>
+    <Box className="app-shell" data-reduce-transparency={reduceTransparency}>
+      <a href="#workspace" className="skip-link">跳到工作區</a>
+      <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)}
+        reduceTransparency={reduceTransparency} onTransparencyChange={(value) => {
+          setReduceTransparency(value);
+          try { localStorage.setItem('pdf-editor.reduce-transparency', String(value)); }
+          catch { /* 儲存不可用時仍套用到目前工作區。 */ }
+        }} />
       <SaveFileDialog
         open={saver.pendingRequest !== null}
         suggestedName={saver.pendingRequest?.suggestedName ?? ''}
@@ -177,18 +192,21 @@ function App() {
           onClose={() => setPreviewPage(null)}
         />
       )}
-      <Container maxWidth="xl" sx={{ py: 3 }}>
-        <Typography
-          variant={currentFile ? 'h5' : 'h4'}
-          component="h1"
-          align="center"
-          sx={{ mb: currentFile ? 2 : 4, color: '#000000' }}
-        >
-          PDF 編輯器
-        </Typography>
+      <Container maxWidth="xl" sx={{ py: { xs: 2, md: 3 }, px: { xs: 2, sm: 3, lg: 5 } }}>
+        <Paper component="header" className="glass-surface" sx={{ p: { xs: 1.5, sm: 2 }, mb: 3, borderRadius: 5 }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
+            <Stack direction="row" alignItems="center" spacing={1.5} sx={{ minWidth: 0 }}>
+              <Box sx={{ width: 44, height: 44, flexShrink: 0, display: 'grid', placeItems: 'center', bgcolor: 'primary.main', color: 'white', borderRadius: 3, boxShadow: 'inset 0 1px 0 rgba(255,255,255,.4), 0 4px 10px rgba(0,103,217,.15)' }}><PictureAsPdfOutlined /></Box>
+              <Box><Typography component="h1" variant="h6">PDF 編輯器</Typography><Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>讓每一份文件，井然有序。</Typography></Box>
+            </Stack>
+            <Button startIcon={<HelpOutline />} onClick={() => setHelpOpen(true)} color="inherit" sx={{ flexShrink: 0 }}>使用說明</Button>
+          </Stack>
+        </Paper>
+
+        <Box component="main" id="workspace" tabIndex={-1} sx={{ outline: 'none' }}>
 
         {loading && (
-          <Box role="status" sx={{ position: 'sticky', top: 0, zIndex: 10, bgcolor: 'background.paper', p: 1, mb: 2 }}>
+          <Box role="status" className="glass-surface" sx={{ position: 'sticky', top: 8, zIndex: 10, p: 2, mb: 2, borderRadius: 3 }}>
             <Typography variant="body2" sx={{ mb: 0.5 }}>正在處理文件，請稍候…</Typography>
             <LinearProgress />
           </Box>
@@ -200,15 +218,23 @@ function App() {
           </Alert>
         )}
         {success && (
-          <Alert severity="success" sx={{ mb: 2 }} onClose={() => status.setSuccess(null)}>
+          <Alert severity="success" role="status" sx={{ mb: 2 }} onClose={() => status.setSuccess(null)}>
             {success}
           </Alert>
         )}
 
-        <Tabs value={view} onChange={(_, value) => setView(value)} aria-label="PDF 工作區" sx={{ mb: 2 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} gap={1.5} sx={{ mb: 3 }}>
+        <Tabs className="glass-surface" value={view} onChange={(_, value) => setView(value)} aria-label="PDF 工作區" sx={{ p: 0.5, borderRadius: 999 }}>
           <Tab value="edit" label="編輯 PDF" id="edit-tab" aria-controls="edit-panel" disabled={loading} />
           <Tab value="merge" label="合併 PDF" id="merge-tab" aria-controls="merge-panel" disabled={loading} />
         </Tabs>
+        <Typography variant="body2" color="text.secondary">{workspace.files.length ? `${workspace.files.length} 份文件 · ${view === 'edit' ? '整理頁面與編輯內容' : '選擇文件並安排合併順序'}` : '你的文件工作區'}</Typography>
+        </Stack>
+
+        {!workspace.files.length && <Box sx={{ textAlign: 'center', mt: { xs: 3, md: 5 }, mb: 3 }}>
+          <Typography component="h2" variant="h4" sx={{ fontSize: { xs: 28, md: 38 }, mb: 1.5 }}>把文件交給這裡，<br />把心力留給重要的事。</Typography>
+          <Typography color="text.secondary">整理、合併、壓縮與轉換。從加入第一份文件開始。</Typography>
+        </Box>}
 
         <UploadZone
           compact={workspace.files.length > 0}
@@ -218,6 +244,20 @@ function App() {
           onFiles={handleUpload}
           onError={status.setError}
         />
+
+        {!workspace.files.length && <>
+          <Box component="ol" aria-label="開始使用的三個步驟" sx={{ listStyle: 'none', display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 3, maxWidth: 900, mx: 'auto', mt: 4, mb: 3 }}>
+            {[
+              ['加入文件', '選擇 PDF 或圖片，也可以一次拖入多份。'],
+              ['依你需要整理', '編輯頁面，或切換到合併工作區安排順序。'],
+              ['另存你的成果', '完成後下載 PDF，保留一份屬於你的副本。'],
+            ].map(([title, description], index) => <Stack component="li" direction="row" spacing={1.5} key={title}>
+              <Box sx={{ width: 30, height: 30, flexShrink: 0, display: 'grid', placeItems: 'center', border: '1px solid #b5c4d6', borderRadius: '50%', fontSize: 13, fontWeight: 650 }}>{index + 1}</Box>
+              <Box><Typography variant="subtitle2" sx={{ mb: 0.5 }}>{title}</Typography><Typography variant="body2" color="text.secondary">{description}</Typography></Box>
+            </Stack>)}
+          </Box>
+          <Typography variant="caption" color="text.secondary" component="p" align="center" sx={{ maxWidth: 640, mx: 'auto', mb: 4 }}>文件會上傳到此服務的伺服器處理並暫存，完成後請下載。可以隨時從「使用說明」查看操作方式。</Typography>
+        </>}
 
         {workspace.files.length > 0 && (
           <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 1 }}>
@@ -238,7 +278,10 @@ function App() {
 
         {currentFile && (
           <>
-            <Typography variant="subtitle1" sx={{ mb: 1, overflowWrap: 'anywhere' }}>正在編輯：{currentFile.name}</Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" gap={1} sx={{ mt: 3, mb: 1.5 }}>
+              <Box sx={{ minWidth: 0 }}><Typography variant="caption" color="text.secondary">目前文件</Typography><Typography component="h2" variant="h6" sx={{ overflowWrap: 'anywhere' }}>{currentFile.name}</Typography></Box>
+              <Chip icon={hasEdits ? undefined : <CheckCircleOutline />} label={hasEdits ? '有未套用的頁面變更' : '編輯完成後，請另存下載'} color={hasEdits ? 'warning' : 'default'} variant="outlined" sx={{ flexShrink: 0 }} />
+            </Stack>
             <ToolBar
               activePanel={activePanel}
               canUndo={workspace.canUndo}
@@ -249,14 +292,14 @@ function App() {
               onSavePdf={() => void handleSavePdf()}
             />
 
-            <Box sx={panelVisible('split')}>
+            <Box id="tool-panel-split" role="region" aria-label="拆分設定" sx={panelVisible('split')}>
               <SplitPanel
                 pageCount={currentFile.pageCount}
                 loading={loading}
                 onSplit={(options) => void closePanelOnSuccess(workspace.split(options))}
               />
             </Box>
-            <Box sx={panelVisible('compress')}>
+            <Box id="tool-panel-compress" role="region" aria-label="壓縮設定" sx={panelVisible('compress')}>
               <CompressPanel
                 loading={loading}
                 result={workspace.compression}
@@ -264,7 +307,7 @@ function App() {
                 onCompress={(options) => void workspace.compress(options)}
               />
             </Box>
-            <Box sx={panelVisible('watermark')}>
+            <Box id="tool-panel-watermark" role="region" aria-label="浮水印設定" sx={panelVisible('watermark')}>
               <WatermarkPanel
                 selectedCount={selectedPages.size}
                 previewPage={activePanel === 'watermark' && !hasEdits ? watermarkPreviewPage : null}
@@ -275,7 +318,7 @@ function App() {
                 )}
               />
             </Box>
-            <Box sx={panelVisible('convert')}>
+            <Box id="tool-panel-convert" role="region" aria-label="圖片轉換設定" sx={panelVisible('convert')}>
               <ConvertPanel
                 selectedCount={selectedPages.size}
                 loading={loading}
@@ -307,6 +350,7 @@ function App() {
             )}
           </>
         )}
+        </Box>
         </Box>
       </Container>
     </Box>

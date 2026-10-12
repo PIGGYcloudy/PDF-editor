@@ -39,6 +39,8 @@ function ToolBar({
   ) => (
     <Button
       variant={activePanel === panel ? 'contained' : 'outlined'}
+      aria-expanded={activePanel === panel && !hasPendingEdits}
+      aria-controls={`tool-panel-${panel}`}
       onClick={() => onTogglePanel(panel)}
       startIcon={icon}
       disabled={disabled || loading}
@@ -48,7 +50,7 @@ function ToolBar({
   );
 
   return (
-    <Paper sx={{ p: 1.5, mb: 2 }}>
+    <Paper className="glass-surface" component="section" aria-label="文件工具" sx={{ p: 1.5, mb: 2, borderRadius: 4 }}>
       <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
         {panelButton('split', '拆分 PDF', <SplitIcon />, hasPendingEdits)}
         {panelButton('compress', '壓縮 PDF', <CompressIcon />, hasPendingEdits)}
@@ -63,7 +65,7 @@ function ToolBar({
           {hasPendingEdits ? '復原頁面編輯' : '復原上一步'}
         </Button>
         <Button
-          variant="outlined"
+          variant="contained"
           onClick={onSavePdf}
           startIcon={<DownloadIcon />}
           disabled={loading}

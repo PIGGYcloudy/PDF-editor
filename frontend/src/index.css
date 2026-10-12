@@ -1,30 +1,52 @@
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
   line-height: 1.5;
   font-weight: 400;
-
   color-scheme: light;
-  color: rgba(0, 0, 0, 0.87);
-  background-color: #f5f5f5;
-
+  color: #182334;
+  background: #eef2f6;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
-
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-body {
-  margin: 0;
-  min-width: 320px;
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+#root { min-height: 100vh; }
+.app-shell {
+  --glass-background: rgba(255, 255, 255, 0.72);
+  --glass-selected: rgba(255, 255, 255, 0.95);
+  --glass-blur: blur(24px) saturate(150%);
   min-height: 100vh;
+  background: radial-gradient(ellipse at 0% 0%, #dceafb 0, transparent 42%), radial-gradient(ellipse at 100% 10%, #e5e4f4 0, transparent 38%), #eef2f6;
 }
-
-#root {
-  min-height: 100vh;
+.glass-surface {
+  background: var(--glass-background) !important;
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid rgba(255,255,255,0.95) !important;
+  box-shadow: 0 8px 32px rgba(36,55,82,0.07), inset 0 1px 0 rgba(255,255,255,0.95) !important;
+}
+.app-shell[data-reduce-transparency="true"] {
+  --glass-background: #f9fbfd;
+  --glass-selected: #ffffff;
+  --glass-blur: none;
+}
+.skip-link { position: fixed; top: 12px; left: 16px; z-index: 1500; padding: 12px 20px; border-radius: 12px; background: white; color: #0051ad; opacity: 0; pointer-events: none; }
+.skip-link:focus { opacity: 1; pointer-events: auto; }
+.upload-target:focus-visible { outline: 3px solid #0067d9; outline-offset: 5px; }
+.page-card { transition: box-shadow 160ms, border-color 160ms; }
+@supports not (backdrop-filter: blur(1px)) {
+  .glass-surface { background: #f9fbfd !important; }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .app-shell { --glass-background: #f9fbfd; --glass-selected: #fff; --glass-blur: none; }
+  .glass-surface { border-color: #8895a6 !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+@media (forced-colors: active) {
+  .glass-surface { border: 1px solid CanvasText !important; }
+  .page-card[aria-label*="已選取"] { outline: 3px solid Highlight; }
 }
