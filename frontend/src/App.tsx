@@ -1,7 +1,7 @@
 import MergeWorkspace from './components/MergeWorkspace';
 import { useState } from 'react';
 import { Alert, Box, Button, Container, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, LinearProgress, Paper, Snackbar, Stack, Tab, Tabs, Typography } from '@mui/material';
-import { HelpOutline, PictureAsPdfOutlined } from '@mui/icons-material';
+import { CallMergeOutlined, EditOutlined, HelpOutline, PictureAsPdfOutlined } from '@mui/icons-material';
 import HelpDialog from './components/HelpDialog';
 import FileList from './components/FileList';
 import PageGrid from './components/PageGrid';
@@ -268,12 +268,6 @@ function App() {
               <Typography component="h1" variant="h6">PDF 編輯器</Typography>
             </Stack>
             <Stack direction="row" alignItems="center" gap={1}>
-              {workspace.files.length > 0 && (
-                <Tabs className="glass-surface" value={view} onChange={(_, value) => { setView(value); clearMessages(); }} aria-label="工作區" sx={{ p: 0.5, borderRadius: 999, display: { xs: 'none', sm: 'flex' } }}>
-                  <Tab value="edit" label="編輯" id="edit-tab" aria-controls="edit-panel" disabled={loading} />
-                  <Tab value="merge" label="合併" id="merge-tab" aria-controls="merge-panel" disabled={loading} />
-                </Tabs>
-              )}
               <Button startIcon={<HelpOutline />} onClick={() => setHelpOpen(true)} color="inherit" aria-label="使用說明" sx={{ flexShrink: 0, minWidth: 44, px: { xs: 1.25, sm: 2.25 }, '& .MuiButton-startIcon': { mr: { xs: 0, sm: 1 }, ml: { xs: 0, sm: -0.5 } } }}>
                 <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>使用說明</Box>
               </Button>
@@ -283,11 +277,12 @@ function App() {
 
         <Box component="main" id="workspace" tabIndex={-1} sx={{ outline: 'none' }}>
 
-        {/* 手機上分頁獨立一列，桌面放在頁首 */}
+        {/* 編輯與合併是兩個主要模式，以置中的分段控制切換 */}
         {workspace.files.length > 0 && (
-          <Tabs className="glass-surface" value={view} onChange={(_, value) => { setView(value); clearMessages(); }} aria-label="工作區" variant="fullWidth" sx={{ p: 0.5, mb: 2, borderRadius: 999, display: { xs: 'flex', sm: 'none' } }}>
-            <Tab value="edit" label="編輯" id="edit-tab-mobile" aria-controls="edit-panel" disabled={loading} />
-            <Tab value="merge" label="合併" id="merge-tab-mobile" aria-controls="merge-panel" disabled={loading} />
+          <Tabs className="glass-surface" value={view} onChange={(_, value) => { setView(value); clearMessages(); }} aria-label="工作區" variant="fullWidth"
+            sx={{ p: 0.5, mb: { xs: 2, md: 3 }, mx: 'auto', width: { xs: '100%', sm: 420 }, borderRadius: 999, '& .MuiTab-root': { minHeight: { xs: 44, sm: 48 }, fontSize: { sm: '1rem' } } }}>
+            <Tab value="edit" label="編輯" icon={<EditOutlined fontSize="small" />} iconPosition="start" id="edit-tab" aria-controls="edit-panel" disabled={loading} />
+            <Tab value="merge" label="合併" icon={<CallMergeOutlined fontSize="small" />} iconPosition="start" id="merge-tab" aria-controls="merge-panel" disabled={loading} />
           </Tabs>
         )}
 

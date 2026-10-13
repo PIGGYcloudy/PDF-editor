@@ -14,7 +14,7 @@
 - **不分模式**（[Modality](https://developer.apple.com/design/human-interface-guidelines/modality)）：頁面編輯會先暫存，但不會因此停用其他工具。打開拆分、壓縮、浮水印、轉圖片或另存時，會自動先套用暫存的變更；選取的頁面跟著移到新版本的編號。
 - **回饋在視線內**（[Feedback](https://developer.apple.com/design/human-interface-guidelines/feedback)）：處理中的提示浮在畫面上方，成功訊息在底部短暫出現，錯誤訊息需要手動關閉，都不推動版面。切換分頁或文件時清除舊訊息。未套用的變更只在頁面區的固定列提示一次，文件列表以圓點標示。
 - **復原與重做**（[Undo and redo](https://developer.apple.com/design/human-interface-guidelines/undo-and-redo)）：按鈕標出動作名稱，例如「復原旋轉」「重做壓縮」，並支援 `Ctrl+Y`／`⇧⌘Z`。
-- **版面**（[Layout](https://developer.apple.com/design/human-interface-guidelines/layout)）：頁面依可用寬度排欄，手機兩欄、320px 一欄。手機上分頁獨立一列，工具列只留圖示並可橫向捲動，選取工具改為圖示按鈕，讓頁面更早出現在畫面中。
+- **版面**（[Layout](https://developer.apple.com/design/human-interface-guidelines/layout)）：頁面依可用寬度排欄，手機兩欄、320px 一欄。「編輯／合併」是置中的分段控制，桌面與手機一致；手機上工具列只留圖示並可橫向捲動，選取工具改為圖示按鈕，讓頁面更早出現在畫面中。
 - **停用時說明原因**：合併按鈕無法使用時，旁邊直接寫出還差什麼。上傳的文件預設勾選為合併對象。
 - **深色模式**（[Dark Mode](https://developer.apple.com/design/human-interface-guidelines/dark-mode)）：跟隨系統外觀；頁面縮圖維持白底，代表紙張。
 - **文字**（[Writing](https://developer.apple.com/design/human-interface-guidelines/writing)）：介面文字只描述功能與狀態，不使用標語。動作一律稱為「另存」。
