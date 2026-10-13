@@ -44,6 +44,19 @@ export interface CompressOptions {
   removeEmbeddedFiles: boolean;
 }
 
+// 統一頁面尺寸
+export type PaperSize = 'A3' | 'A4' | 'A5' | 'B4' | 'B5' | 'Letter' | 'Legal';
+/** auto：依每頁原本的方向選直式或橫式 */
+export type PageOrientation = 'auto' | 'portrait' | 'landscape';
+/** fit：完整放入並留白；fill：填滿頁面並裁掉超出部分 */
+export type PageFitMode = 'fit' | 'fill';
+
+export interface PageSizeOptions {
+  size: PaperSize;
+  orientation: PageOrientation;
+  mode: PageFitMode;
+}
+
 // 轉換選項
 export type ConvertFormat = 'jpg' | 'png';
 export type ConvertDpi = 72 | 150 | 300;
@@ -70,6 +83,11 @@ export interface CompressResponse {
 
 // 浮水印回應
 export interface WatermarkResponse {
+  newPdfId: string;
+}
+
+// 統一頁面尺寸回應
+export interface NormalizePageSizeResponse {
   newPdfId: string;
 }
 

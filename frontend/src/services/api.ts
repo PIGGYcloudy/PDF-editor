@@ -11,6 +11,8 @@ import type {
   ConvertFormat,
   ImagePageSize,
   ImagesToPdfResponse,
+  NormalizePageSizeResponse,
+  PageSizeOptions,
   ApplyEditsResponse,
   PageEditPayload,
   SplitOptions,
@@ -89,6 +91,22 @@ export async function compressPDF(
   const response = await api.post<CompressResponse>('/pdf/compress', {
     pdfId,
     ...options,
+  });
+  return response.data;
+}
+
+// 把頁面縮放置中到統一的紙張尺寸
+export async function normalizePageSize(
+  pdfId: string,
+  options: PageSizeOptions,
+  pages: 'all' | 'selected' = 'all',
+  selectedPageNumbers?: number[],
+): Promise<NormalizePageSizeResponse> {
+  const response = await api.post<NormalizePageSizeResponse>('/pdf/normalize-size', {
+    pdfId,
+    ...options,
+    pages,
+    selectedPageNumbers,
   });
   return response.data;
 }

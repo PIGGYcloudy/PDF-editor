@@ -147,6 +147,32 @@ class SplitResponse(BaseModel):
     files: List[SplitFile]
 
 
+# 統一頁面尺寸請求
+class NormalizePageSizeRequest(BaseModel):
+    pdfId: str
+    size: Literal["A3", "A4", "A5", "B4", "B5", "Letter", "Legal"] = Field(
+        "A4", description="目標紙張尺寸"
+    )
+    orientation: Literal["auto", "portrait", "landscape"] = Field(
+        "auto", description="auto 依每頁原本的方向；portrait 直式；landscape 橫式"
+    )
+    mode: Literal["fit", "fill"] = Field(
+        "fit", description="fit 完整放入並留白；fill 填滿頁面並裁掉超出部分"
+    )
+    pages: PageSelection = Field("all", description="all 或 selected")
+    selectedPageNumbers: Optional[List[int]] = Field(None, description="當 pages 為 selected 時必填")
+
+    @model_validator(mode="after")
+    def validate_selected_pages(self):
+        if self.pages == "selected" and not self.selectedPageNumbers:
+            raise ValueError("pages 為 selected 時必須提供 selectedPageNumbers")
+        return self
+
+
+class NormalizePageSizeResponse(BaseModel):
+    newPdfId: str
+
+
 # 壓縮請求
 class CompressRequest(BaseModel):
     pdfId: str

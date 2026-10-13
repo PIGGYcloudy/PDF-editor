@@ -11,6 +11,7 @@ import ToolBar from './components/ToolBar';
 import type { ToolPanel } from './components/ToolBar';
 import UploadZone from './components/UploadZone';
 import CompressPanel from './components/panels/CompressPanel';
+import PageSizePanel from './components/panels/PageSizePanel';
 import ConvertPanel from './components/panels/ConvertPanel';
 import SplitPanel from './components/panels/SplitPanel';
 import WatermarkPanel from './components/panels/WatermarkPanel';
@@ -20,6 +21,7 @@ import { usePdfWorkspace } from './hooks/usePdfWorkspace';
 import { useStatus } from './hooks/useStatus';
 import type { WorkspaceFile } from './state/workspace';
 import type { ConvertDpi, ConvertFormat, ImagePageSize } from './types';
+import { describePageSizes } from './utils/pageSizes';
 import {
   canUseNativeSaveFilePicker,
   normalizeDownloadFilename,
@@ -297,6 +299,14 @@ function App() {
                 pageCount={currentFile.pageCount}
                 loading={loading}
                 onSplit={(options) => void closePanelOnSuccess(workspace.split(options))}
+              />
+            </Box>
+            <Box id="tool-panel-pageSize" role="region" aria-label="頁面尺寸設定" sx={panelVisible('pageSize')}>
+              <PageSizePanel
+                sizeSummary={describePageSizes(workspace.pages)}
+                selectedCount={selectedPages.size}
+                loading={loading}
+                onNormalize={(options) => void closePanelOnSuccess(workspace.normalizeSize(options))}
               />
             </Box>
             <Box id="tool-panel-compress" role="region" aria-label="壓縮設定" sx={panelVisible('compress')}>
