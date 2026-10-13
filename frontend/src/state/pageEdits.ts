@@ -20,6 +20,11 @@ export interface PageEditsState {
   pages: StagedPage[];
   /** 每次編輯前的 pages，最後一筆是最近一次編輯前的狀態 */
   history: StagedPage[][];
+  /** 與 history 一一對應的動作名稱，用於「復原旋轉」這類按鈕文字 */
+  labels: string[];
+  /** 復原後可重做的 pages，最後一筆是下一個要重做的狀態 */
+  future: StagedPage[][];
+  futureLabels: string[];
 }
 
 /** 暫存編輯的復原步數上限。 */
@@ -31,12 +36,23 @@ export type PageEditsAction =
   | { type: 'remove'; pageNumbers: number[] }
   | { type: 'reorder'; order: number[] }
   | { type: 'undo' }
+  | { type: 'redo' }
   | { type: 'discard' };
+
+/** 各種頁面編輯在復原／重做按鈕上的名稱。 */
+export const EDIT_LABELS = {
+  rotate: '旋轉',
+  remove: '刪除頁面',
+  reorder: '調整順序',
+} as const;
 
 export const initialPageEdits: PageEditsState = {
   baseline: [],
   pages: [],
   history: [],
+  labels: [],
+  future: [],
+  futureLabels: [],
 };
 
 function initialPages(pageNumbers: number[]): StagedPage[] {
@@ -47,11 +63,15 @@ export function normalizeRotation(degrees: number): Rotation {
   return ((((degrees % 360) + 360) % 360) as Rotation);
 }
 
-function pushEdit(state: PageEditsState, pages: StagedPage[]): PageEditsState {
+function pushEdit(state: PageEditsState, pages: StagedPage[], label: string): PageEditsState {
   return {
     ...state,
     pages,
     history: [...state.history, state.pages].slice(-MAX_EDIT_HISTORY),
+    labels: [...state.labels, label].slice(-MAX_EDIT_HISTORY),
+    // 新的編輯會讓先前復原的步驟失效
+    future: [],
+    futureLabels: [],
   };
 }
 
@@ -62,16 +82,16 @@ export function pageEditsReducer(
   switch (action.type) {
     case 'reset':
       return {
+        ...initialPageEdits,
         baseline: action.pageNumbers,
         pages: initialPages(action.pageNumbers),
-        history: [],
       };
 
     case 'discard':
       return {
-        ...state,
+        ...initialPageEdits,
+        baseline: state.baseline,
         pages: initialPages(state.baseline),
-        history: [],
       };
 
     case 'rotate': {
@@ -86,6 +106,7 @@ export function pageEditsReducer(
             ? { ...page, rotation: normalizeRotation(page.rotation + action.delta) }
             : page
         )),
+        EDIT_LABELS.rotate,
       );
     }
 
@@ -96,7 +117,7 @@ export function pageEditsReducer(
       if (remaining.length === 0 || remaining.length === state.pages.length) {
         return state;
       }
-      return pushEdit(state, remaining);
+      return pushEdit(state, remaining, EDIT_LABELS.remove);
     }
 
     case 'reorder': {
@@ -110,7 +131,7 @@ export function pageEditsReducer(
       if (reordered.length !== state.pages.length || unchanged) {
         return state;
       }
-      return pushEdit(state, reordered);
+      return pushEdit(state, reordered, EDIT_LABELS.reorder);
     }
 
     case 'undo': {
@@ -122,6 +143,24 @@ export function pageEditsReducer(
         ...state,
         pages: previous,
         history: state.history.slice(0, -1),
+        labels: state.labels.slice(0, -1),
+        future: [...state.future, state.pages],
+        futureLabels: [...state.futureLabels, state.labels[state.labels.length - 1] ?? ''],
+      };
+    }
+
+    case 'redo': {
+      const next = state.future[state.future.length - 1];
+      if (!next) {
+        return state;
+      }
+      return {
+        ...state,
+        pages: next,
+        history: [...state.history, state.pages],
+        labels: [...state.labels, state.futureLabels[state.futureLabels.length - 1] ?? ''],
+        future: state.future.slice(0, -1),
+        futureLabels: state.futureLabels.slice(0, -1),
       };
     }
   }

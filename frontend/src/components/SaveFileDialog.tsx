@@ -44,7 +44,7 @@ function SaveFileForm({
 
   return (
     <>
-      <DialogTitle>儲存檔案</DialogTitle>
+      <DialogTitle>另存檔案</DialogTitle>
       <DialogContent>
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
@@ -53,8 +53,8 @@ function SaveFileForm({
         )}
         <DialogContentText sx={{ mb: 2 }}>
           {nativeSaveAvailable
-            ? '確認檔案名稱後，可在下一個視窗選擇儲存資料夾。'
-            : '這個瀏覽器無法由網頁直接選擇資料夾；實際儲存位置會依瀏覽器的下載設定決定。'}
+            ? '確認檔名後，可在下一步選擇儲存位置。'
+            : '檔案會存到瀏覽器的預設下載位置。'}
         </DialogContentText>
         <TextField
           autoFocus
@@ -62,7 +62,7 @@ function SaveFileForm({
           label="檔案名稱"
           value={filename}
           onChange={(event) => setFilename(event.target.value)}
-          helperText={`若未輸入 ${extension}，系統會自動補上。`}
+          helperText={`會自動補上 ${extension}`}
           disabled={loading}
         />
       </DialogContent>

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import type { CSSProperties } from 'react';
 import {
   Alert,
@@ -7,16 +8,21 @@ import {
   Checkbox,
   CircularProgress,
   Divider,
-  Grid,
   IconButton,
+  Menu,
+  MenuItem,
   Paper,
   Stack,
   Tooltip,
   Typography,
+  useMediaQuery,
 } from '@mui/material';
+import type { Theme } from '@mui/material';
 import {
+  Close as CloseIcon,
   Delete as DeleteIcon,
   DragIndicator,
+  ExpandMore as ExpandMoreIcon,
   FileCopy as ExtractIcon,
   RotateLeft as RotateLeftIcon,
   RotateRight as RotateRightIcon,
@@ -74,8 +80,9 @@ const screenReaderInstructions = {
  */
 function thumbnailStyle(rotation: Rotation, aspect: number): CSSProperties {
   const base: CSSProperties = {
-    border: '1px solid #eee',
+    border: '1px solid var(--line-subtle)',
     borderRadius: 4,
+    background: '#fff',
     transition: 'transform 0.2s',
   };
   if (rotation === 90 || rotation === 270) {
@@ -157,17 +164,17 @@ function SortablePage({
         position: 'relative',
       }}
       sx={{
-        border: selected ? '2px solid #0067d9' : '2px solid #e0e6ee',
+        border: selected ? '2px solid var(--accent)' : '2px solid var(--line-subtle)',
         borderRadius: 3,
-        p: 1,
+        p: { xs: 0.5, sm: 1 },
         textAlign: 'center',
-        bgcolor: selected ? '#edf4ff' : '#f8fafc',
+        bgcolor: selected ? 'var(--surface-selected)' : 'var(--surface-muted)',
         cursor: disabled ? 'default' : isDragging ? 'grabbing' : 'grab',
         opacity: isDragging ? 0.8 : 1,
         boxShadow: isDragging ? 4 : 0,
         userSelect: 'none',
         '&:hover': { boxShadow: isDragging ? 4 : 2 },
-        '&:focus-visible': { outline: '3px solid #0067d9', outlineOffset: 2 },
+        '&:focus-visible': { outline: '3px solid var(--accent)', outlineOffset: 2 },
       }}
     >
       <Stack
@@ -180,7 +187,7 @@ function SortablePage({
           mb: 1,
           p: 0.25,
           borderRadius: 3,
-          bgcolor: 'rgba(255, 255, 255, 0.92)',
+          bgcolor: 'background.paper',
           boxShadow: 1,
           // 操作保持可見並放在縮圖上方，避免遮住文件內容。
         }}
@@ -270,7 +277,7 @@ function SortablePage({
           />
         )}
       </Box>
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ minWidth: 0 }}>
         <Checkbox
           size="small"
           checked={selected}
@@ -280,9 +287,9 @@ function SortablePage({
           onChange={() => undefined}
           sx={{ p: 0.5 }}
         />
-        <Stack direction="row" alignItems="center" spacing={0.5}>
-          <DragIndicator fontSize="small" color="action" />
-          <Typography variant="body2" fontWeight="bold">
+        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minWidth: 0 }}>
+          <DragIndicator fontSize="small" color="action" sx={{ display: { xs: 'none', sm: 'block' } }} />
+          <Typography variant="body2" fontWeight="bold" noWrap>
             第 {position} 頁
           </Typography>
         </Stack>
@@ -300,9 +307,8 @@ function SortablePage({
           </IconButton>
         </Tooltip>
       </Stack>
-      <Typography variant="caption" color="text.secondary">
-        {page.pageNumber !== position && `原第 ${page.pageNumber} 頁 · `}
-        {page.width} x {page.height} pt
+      <Typography variant="caption" color="text.secondary" component="p" sx={{ minHeight: '1.66em' }}>
+        {page.pageNumber !== position && `原第 ${page.pageNumber} 頁`}
       </Typography>
     </Box>
   );
@@ -370,102 +376,105 @@ function PageGrid({
     onOrderChange(arrayMove(order, oldIndex, newIndex));
   };
 
+  const [selectMenu, setSelectMenu] = useState<HTMLElement | null>(null);
+  const coarsePointer = useMediaQuery('(pointer: coarse)');
+  // 只有圖示的按鈕才需要提示名稱
+  const iconOnly = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
+  const closeMenuAnd = (action: () => void) => () => {
+    setSelectMenu(null);
+    action();
+  };
+  /** 手機上只顯示圖示的按鈕；名稱仍由 aria-label 提供。 */
+  const selectionAction = (
+    label: string,
+    icon: ReactNode,
+    onClick: () => void,
+    color: 'primary' | 'error' = 'primary',
+  ) => (
+    <Tooltip title={iconOnly ? label : ''}>
+      <Button
+        size="small"
+        color={color}
+        aria-label={label}
+        startIcon={icon}
+        onClick={onClick}
+        disabled={loading}
+        sx={{ minWidth: 44, px: { xs: 1, md: 1.5 }, '& .MuiButton-startIcon': { mr: { xs: 0, md: 1 }, ml: { xs: 0, md: -0.5 } } }}
+      >
+        <Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>{label}</Box>
+      </Button>
+    </Tooltip>
+  );
+
   return (
-    <Paper sx={{ p: { xs: 2, sm: 3 } }}>
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="h6">頁面預覽 ({order.length} 頁)</Typography>
+    <Paper sx={{ p: { xs: 1.5, sm: 3 } }}>
+      <Box sx={{ mb: 1.5, px: { xs: 0.5, sm: 0 } }}>
+        <Typography component="h2" variant="h6">頁面 ({order.length})</Typography>
         <Typography variant="body2" color="text.secondary">
-          點擊選取（Shift+點擊選取範圍），拖曳調整順序（觸控裝置請長按後拖曳），
-          使用頁面上方的按鈕旋轉或刪除。變更會先暫存，按「套用變更」才會產生新版本。
+          {coarsePointer
+            ? '點一下選取頁面，長按後拖曳可調整順序。'
+            : '點一下選取頁面，Shift＋點一下選取範圍，拖曳可調整順序。'}
         </Typography>
       </Box>
 
-      {pendingSummary !== null && (
-        <Alert
-          severity="info"
-          // 頁面很多時，套用按鈕仍留在視線內
-          sx={{ mb: 2, position: 'sticky', top: 8, zIndex: 3, alignItems: 'center', flexWrap: { xs: 'wrap', sm: 'nowrap' }, '& .MuiAlert-action': { ml: { xs: 0, sm: 'auto' }, pl: { xs: 0, sm: 2 }, pb: 1 } }}
-          action={(
-            <Stack direction="row" spacing={1}>
-              <Button color="inherit" size="small" onClick={onDiscard} disabled={loading}>
-                還原變更
-              </Button>
-              <Button variant="contained" size="small" onClick={onApply} disabled={loading}>
-                {loading ? <CircularProgress size={20} /> : '套用變更'}
-              </Button>
-            </Stack>
-          )}
-        >
-          尚未套用：{pendingSummary}
-        </Alert>
-      )}
-
-      <Stack
-        direction="row"
-        alignItems="center"
-        spacing={1}
-        useFlexGap
-        flexWrap="wrap"
-        sx={{ mb: 2 }}
+      {/* 未套用的變更與選取工具固定在視線內，頁面很多時也不必捲回頂端 */}
+      <Box
+        className="glass-surface"
+        sx={{ position: 'sticky', top: 8, zIndex: 3, mb: 2, mx: { xs: -0.5, sm: 0 }, p: 0.75, borderRadius: 3 }}
       >
-        <Typography variant="body2" color="text.secondary">選取：</Typography>
-        <Button size="small" onClick={onSelectAll} disabled={loading}>全選</Button>
-        <Button size="small" onClick={() => onSelectParity('odd')} disabled={loading}>
-          奇數頁
-        </Button>
-        <Button size="small" onClick={() => onSelectParity('even')} disabled={loading}>
-          偶數頁
-        </Button>
-        <Button size="small" onClick={onInvertSelection} disabled={loading}>反選</Button>
-        <Button
-          size="small"
-          onClick={onClearSelection}
-          disabled={loading || selectedCount === 0}
-        >
-          取消選取
-        </Button>
-        {selectedCount > 0 && (
-          <>
-            <Divider orientation="vertical" flexItem />
-            <Typography variant="body2" fontWeight="bold">
-              已選取 {selectedCount} 頁
-            </Typography>
-            <Button
-              size="small"
-              startIcon={<RotateLeftIcon />}
-              onClick={() => onRotate(selectedPageNumbers, -90)}
-              disabled={loading}
-            >
-              向左旋轉
-            </Button>
-            <Button
-              size="small"
-              startIcon={<RotateRightIcon />}
-              onClick={() => onRotate(selectedPageNumbers, 90)}
-              disabled={loading}
-            >
-              向右旋轉
-            </Button>
-            <Button
-              size="small"
-              color="error"
-              startIcon={<DeleteIcon />}
-              onClick={() => onDelete(selectedPageNumbers)}
-              disabled={loading}
-            >
-              刪除
-            </Button>
-            <Button
-              size="small"
-              startIcon={<ExtractIcon />}
-              onClick={onExtract}
-              disabled={loading}
-            >
-              抽出為新檔案
-            </Button>
-          </>
+        {pendingSummary !== null && (
+          <Alert
+            severity="info"
+            sx={{ mb: 0.75, py: 0, flexWrap: 'wrap', '& .MuiAlert-action': { ml: 'auto', pl: 1, py: 0.5, mr: 0 } }}
+            action={(
+              <Stack direction="row" spacing={1}>
+                <Button color="inherit" size="small" onClick={onDiscard} disabled={loading}>
+                  還原
+                </Button>
+                <Button variant="contained" size="small" onClick={onApply} disabled={loading}>
+                  {loading ? <CircularProgress size={20} color="inherit" /> : '套用變更'}
+                </Button>
+              </Stack>
+            )}
+          >
+            未套用：{pendingSummary}
+          </Alert>
         )}
-      </Stack>
+        <Stack direction="row" alignItems="center" gap={{ xs: 0, sm: 0.5 }} useFlexGap flexWrap="wrap">
+          {selectedCount === 0 ? (
+            <>
+              <Button size="small" onClick={onSelectAll} disabled={loading}>全選</Button>
+              <Button
+                size="small"
+                endIcon={<ExpandMoreIcon />}
+                aria-haspopup="menu"
+                aria-expanded={selectMenu !== null}
+                onClick={(event: ReactMouseEvent<HTMLElement>) => setSelectMenu(event.currentTarget)}
+                disabled={loading}
+              >
+                更多選取方式
+              </Button>
+            </>
+          ) : (
+            <>
+              <Typography variant="body2" fontWeight="bold" role="status" sx={{ px: 1 }}>
+                已選取 {selectedCount} 頁
+              </Typography>
+              {selectionAction('取消選取', <CloseIcon />, onClearSelection)}
+              <Divider orientation="vertical" flexItem sx={{ mx: 0.5, display: { xs: 'none', sm: 'block' } }} />
+              {selectionAction('向左旋轉', <RotateLeftIcon />, () => onRotate(selectedPageNumbers, -90))}
+              {selectionAction('向右旋轉', <RotateRightIcon />, () => onRotate(selectedPageNumbers, 90))}
+              {selectionAction('抽出為新檔案', <ExtractIcon />, onExtract)}
+              {selectionAction('刪除', <DeleteIcon />, () => onDelete(selectedPageNumbers), 'error')}
+            </>
+          )}
+        </Stack>
+        <Menu anchorEl={selectMenu} open={selectMenu !== null} onClose={() => setSelectMenu(null)}>
+          <MenuItem onClick={closeMenuAnd(() => onSelectParity('odd'))}>奇數頁</MenuItem>
+          <MenuItem onClick={closeMenuAnd(() => onSelectParity('even'))}>偶數頁</MenuItem>
+          <MenuItem onClick={closeMenuAnd(onInvertSelection)}>反向選取</MenuItem>
+        </Menu>
+      </Box>
 
       <DndContext
         sensors={sensors}
@@ -474,27 +483,36 @@ function PageGrid({
         accessibility={{ announcements: createAnnouncements(order), screenReaderInstructions }}
       >
         <SortableContext items={order} strategy={rectSortingStrategy}>
-          <Grid container spacing={2}>
+          {/* 依可用寬度排欄：手機兩欄，320px 時一欄，桌面依螢幕放更多欄 */}
+          <Box
+            sx={{
+              display: 'grid',
+              gap: { xs: 1, sm: 2 },
+              gridTemplateColumns: {
+                xs: 'repeat(auto-fill, minmax(150px, 1fr))',
+                sm: 'repeat(auto-fill, minmax(200px, 1fr))',
+              },
+            }}
+          >
             {order.map((pageNumber, index) => {
               const page = pagesByNumber.get(pageNumber);
               if (!page) return null;
               return (
-                <Grid item xs={12} sm={6} md={4} lg={3} xl={2} key={pageNumber}>
-                  <SortablePage
-                    page={page}
-                    position={index + 1}
-                    rotation={rotations.get(pageNumber) ?? 0}
-                    selected={selected.has(pageNumber)}
-                    disabled={loading}
-                    onToggle={onToggle}
-                    onRotate={(number, delta) => onRotate([number], delta)}
-                    onDelete={(number) => onDelete([number])}
-                    onPreview={onPreview}
-                  />
-                </Grid>
+                <SortablePage
+                  key={pageNumber}
+                  page={page}
+                  position={index + 1}
+                  rotation={rotations.get(pageNumber) ?? 0}
+                  selected={selected.has(pageNumber)}
+                  disabled={loading}
+                  onToggle={onToggle}
+                  onRotate={(number, delta) => onRotate([number], delta)}
+                  onDelete={(number) => onDelete([number])}
+                  onPreview={onPreview}
+                />
               );
             })}
-          </Grid>
+          </Box>
         </SortableContext>
       </DndContext>
     </Paper>

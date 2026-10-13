@@ -2,9 +2,7 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color-scheme: light;
-  color: #182334;
-  background: #eef2f6;
+  color-scheme: light dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -13,34 +11,73 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { margin: 0; min-width: 320px; min-height: 100vh; }
 #root { min-height: 100vh; }
-.app-shell {
+
+/* 元件共用的顏色；深色外觀在下方的 media query 覆寫。 */
+.app-shell, .MuiPopover-root, .MuiDialog-root, .MuiSnackbar-root {
+  --accent: #0067d9;
   --glass-background: rgba(255, 255, 255, 0.72);
   --glass-selected: rgba(255, 255, 255, 0.95);
+  --glass-border: rgba(255, 255, 255, 0.95);
+  --glass-shadow: 0 8px 32px rgba(36, 55, 82, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.95);
   --glass-blur: blur(24px) saturate(150%);
+  --surface-muted: #f8fafc;
+  --surface-selected: #edf4ff;
+  --surface-tint: #e8f0fb;
+  --line-subtle: #e0e6ee;
+  --line-dashed: #9cacbf;
+  --upload-background: rgba(255, 255, 255, 0.65);
+  --upload-hover: #f2f7fe;
+  --upload-active: #e6f1ff;
+  --canvas: #eef2f6;
+  --canvas-gradient: radial-gradient(ellipse at 0% 0%, #dceafb 0, transparent 42%), radial-gradient(ellipse at 100% 10%, #e5e4f4 0, transparent 38%);
+}
+@media (prefers-color-scheme: dark) {
+  .app-shell, .MuiPopover-root, .MuiDialog-root, .MuiSnackbar-root {
+    --accent: #0a84ff;
+    --glass-background: rgba(32, 36, 42, 0.72);
+    --glass-selected: rgba(70, 76, 86, 0.9);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --surface-muted: #20252b;
+    --surface-selected: rgba(10, 132, 255, 0.16);
+    --surface-tint: rgba(10, 132, 255, 0.16);
+    --line-subtle: #2e353e;
+    --line-dashed: #56616e;
+    --upload-background: rgba(255, 255, 255, 0.03);
+    --upload-hover: rgba(10, 132, 255, 0.08);
+    --upload-active: rgba(10, 132, 255, 0.16);
+    --canvas: #101317;
+    --canvas-gradient: radial-gradient(ellipse at 0% 0%, #13233a 0, transparent 42%), radial-gradient(ellipse at 100% 10%, #1d1b33 0, transparent 38%);
+  }
+}
+
+.app-shell {
   min-height: 100vh;
-  background: radial-gradient(ellipse at 0% 0%, #dceafb 0, transparent 42%), radial-gradient(ellipse at 100% 10%, #e5e4f4 0, transparent 38%), #eef2f6;
+  background: var(--canvas-gradient), var(--canvas);
 }
 .glass-surface {
   background: var(--glass-background) !important;
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
-  border: 1px solid rgba(255,255,255,0.95) !important;
-  box-shadow: 0 8px 32px rgba(36,55,82,0.07), inset 0 1px 0 rgba(255,255,255,0.95) !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: var(--glass-shadow) !important;
 }
 .app-shell[data-reduce-transparency="true"] {
-  --glass-background: #f9fbfd;
-  --glass-selected: #ffffff;
+  --glass-background: var(--surface-muted);
+  --glass-selected: var(--surface-selected);
   --glass-blur: none;
 }
-.skip-link { position: fixed; top: 12px; left: 16px; z-index: 1500; padding: 12px 20px; border-radius: 12px; background: white; color: #0051ad; opacity: 0; pointer-events: none; }
+.skip-link { position: fixed; top: 12px; left: 16px; z-index: 1500; padding: 12px 20px; border-radius: 12px; background: Canvas; color: var(--accent); opacity: 0; pointer-events: none; }
 .skip-link:focus { opacity: 1; pointer-events: auto; }
-.upload-target:focus-visible { outline: 3px solid #0067d9; outline-offset: 5px; }
+.upload-target:focus-visible { outline: 3px solid var(--accent); outline-offset: 5px; }
 .page-card { transition: box-shadow 160ms, border-color 160ms; }
+/* 頁面縮圖代表紙張，深色外觀下也維持白底。 */
+.page-paper { background: #fff; }
 @supports not (backdrop-filter: blur(1px)) {
-  .glass-surface { background: #f9fbfd !important; }
+  .glass-surface { background: var(--surface-muted) !important; }
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  .app-shell { --glass-background: #f9fbfd; --glass-selected: #fff; --glass-blur: none; }
+  .app-shell { --glass-background: var(--surface-muted); --glass-selected: var(--surface-selected); --glass-blur: none; }
   .glass-surface { border-color: #8895a6 !important; }
 }
 @media (prefers-reduced-motion: reduce) {
