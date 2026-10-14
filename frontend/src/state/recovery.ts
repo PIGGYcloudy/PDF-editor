@@ -56,6 +56,21 @@ export function parseSnapshot(raw: string | null): WorkspaceSnapshot | null {
       && new Set(stage.map((page: StagedPage) => page.pageNumber)).size === stage.length;
     if (!validStage(edits.pages) || !Array.isArray(edits.history)
       || !edits.history.every(validStage)) return null;
+    const labelsFor = (stages: unknown[], labels: unknown) => (
+      Array.isArray(labels) && labels.length === stages.length
+      && labels.every((label) => typeof label === 'string')
+        ? labels as string[]
+        : stages.map(() => '頁面編輯'));
+    // 舊版快照沒有動作名稱與重做紀錄，補上預設值
+    const future = Array.isArray(edits.future) && edits.future.every(validStage) ? edits.future : [];
+    Object.assign(edits, {
+      labels: labelsFor(edits.history, edits.labels),
+      future,
+      futureLabels: labelsFor(future, edits.futureLabels),
+    });
+    for (const file of workspace.files as Record<string, unknown>[]) {
+      if (!Array.isArray(file.future) || !file.future.every(isVersion)) file.future = [];
+    }
     const snapshot = value as unknown as WorkspaceSnapshot;
     const current = snapshot.workspace.files.find((file) => file.key === workspace.currentKey);
     // Never trust persisted URLs; derive them from the restored current PDF.

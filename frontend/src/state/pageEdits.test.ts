@@ -94,6 +94,26 @@ describe('pageEditsReducer', () => {
     expect(pageEditsReducer(undoneTwice, { type: 'undo' })).toBe(undoneTwice);
   });
 
+  it('redoes undone edits with their labels until a new edit is made', () => {
+    const edited = reduce(
+      load,
+      { type: 'remove', pageNumbers: [1] },
+      { type: 'rotate', pageNumbers: [2], delta: 90 },
+    );
+    expect(edited.labels).toEqual(['刪除頁面', '旋轉']);
+    const undone = pageEditsReducer(pageEditsReducer(edited, { type: 'undo' }), { type: 'undo' });
+    expect(undone.futureLabels).toEqual(['旋轉', '刪除頁面']);
+
+    const redone = pageEditsReducer(undone, { type: 'redo' });
+    expect(order(redone)).toEqual([2, 3, 4]);
+    expect(redone.labels).toEqual(['刪除頁面']);
+    expect(pageEditsReducer(redone, { type: 'redo' }).pages).toEqual(edited.pages);
+
+    const branched = pageEditsReducer(redone, { type: 'reorder', order: [4, 3, 2] });
+    expect(branched.future).toEqual([]);
+    expect(pageEditsReducer(branched, { type: 'redo' })).toBe(branched);
+  });
+
   it('discards all staged edits', () => {
     const state = reduce(
       load,

@@ -25,7 +25,7 @@ function ConvertPanel({ selectedCount, loading, onConvert }: ConvertPanelProps) 
   return (
     <Paper sx={{ p: 3, mb: 3 }}>
       <Typography variant="h6" gutterBottom>
-        轉換為圖片
+        轉成圖片
       </Typography>
       <Box sx={{ mb: 2 }}>
         <Typography variant="body2" gutterBottom>輸出格式</Typography>

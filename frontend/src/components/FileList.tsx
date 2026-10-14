@@ -1,5 +1,5 @@
 import { Button, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material';
-import { Delete, PictureAsPdf } from '@mui/icons-material';
+import { Close, PictureAsPdf } from '@mui/icons-material';
 import type { WorkspaceFile } from '../state/workspace';
 interface Props {
   files: WorkspaceFile[];
@@ -10,19 +10,26 @@ interface Props {
   onRemove: (file: WorkspaceFile) => void;
 }
 export default function FileList({ files, currentKey, pendingFileKeys, loading, onOpen, onRemove }: Props) {
-  return <Paper component="section" aria-label="文件列表" sx={{ p: 2, mb: 2, bgcolor: 'rgba(255,255,255,.8)' }}>
-    <Typography variant="subtitle2" sx={{ mb: 1.5 }}>選擇要編輯的 PDF <Typography component="span" variant="caption" color="text.secondary">· {files.length} 份</Typography></Typography>
+  return <Paper component="section" aria-label="文件" sx={{ p: { xs: 1.5, sm: 2 }, mb: 2 }}>
     <Stack direction="row" useFlexGap flexWrap="wrap" gap={1}>
-      {files.map((file) => <Stack key={file.key} direction="row" alignItems="center" sx={{ maxWidth: '100%' }}>
-        <Button startIcon={<PictureAsPdf />} variant={currentKey === file.key ? 'contained' : 'outlined'}
-          aria-pressed={currentKey === file.key} disabled={loading} onClick={() => onOpen(file.key)}
-          sx={{ textTransform: 'none', minWidth: 0 }}>
-          <span style={{ overflowWrap: 'anywhere' }}>{file.name}</span>
-        </Button>
-        {pendingFileKeys.includes(file.key) && <Typography variant="caption" sx={{ ml: 1 }}>未套用</Typography>}
-        <Tooltip title="刪除檔案"><span><IconButton color="error" aria-label={`刪除 ${file.name}`} disabled={loading}
-          onClick={() => onRemove(file)}><Delete fontSize="small" /></IconButton></span></Tooltip>
-      </Stack>)}
+      {files.map((file) => {
+        const pending = pendingFileKeys.includes(file.key);
+        return <Stack key={file.key} direction="row" alignItems="center" sx={{ maxWidth: '100%' }}>
+          <Button startIcon={<PictureAsPdf />} variant={currentKey === file.key ? 'contained' : 'outlined'}
+            aria-pressed={currentKey === file.key} disabled={loading} onClick={() => onOpen(file.key)}
+            aria-label={pending ? `${file.name}（有未套用的變更）` : file.name}
+            sx={{ textTransform: 'none', minWidth: 0 }}>
+            <span style={{ overflowWrap: 'anywhere' }}>{file.name}</span>
+            {/* 有未套用變更的文件以圓點標示，與 macOS 未儲存文件的慣例一致 */}
+            {pending && <span aria-hidden style={{ width: 7, height: 7, marginLeft: 8, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }} />}
+          </Button>
+          <Tooltip title="移除檔案"><span><IconButton aria-label={`移除 ${file.name}`} disabled={loading}
+            onClick={() => onRemove(file)}><Close fontSize="small" /></IconButton></span></Tooltip>
+        </Stack>;
+      })}
     </Stack>
+    <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 1 }}>
+      檔案只在伺服器暫存一段時間，完成後請另存到裝置。
+    </Typography>
   </Paper>;
 }

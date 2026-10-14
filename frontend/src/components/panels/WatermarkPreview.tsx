@@ -135,7 +135,7 @@ function WatermarkPreview({ page, content }: WatermarkPreviewProps) {
           width: '100%',
           aspectRatio: `${pageWidth} / ${pageHeight}`,
           bgcolor: '#fff',
-          border: '1px solid #ddd',
+          border: '1px solid var(--line-subtle)',
           boxShadow: 1,
           overflow: 'hidden',
         }}

@@ -38,7 +38,7 @@ function CompressPanel({ loading, result, onCompress }: CompressPanelProps) {
   return (
     <Paper sx={{ p: 3, mb: 3 }}>
       <Typography variant="h6" gutterBottom>
-        壓縮 PDF
+        壓縮
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         只重新壓縮內嵌圖片，文字、向量與連結都會保留。
@@ -90,7 +90,7 @@ function CompressPanel({ loading, result, onCompress }: CompressPanelProps) {
           </strong>
           {result.ratio > 0
             ? `（縮小 ${result.ratio}%）`
-            : '（沒有變小，這份文件的圖片可能已經很精簡。可降低品質再試，或按「復原上一步」還原）'}
+            : '（沒有變小，這份文件的圖片可能已經很精簡。可降低品質再試，或按「復原」還原）'}
         </Alert>
       )}
       <Button
@@ -98,7 +98,7 @@ function CompressPanel({ loading, result, onCompress }: CompressPanelProps) {
         onClick={() => onCompress({ quality, maxImageWidth: width, removeEmbeddedFiles })}
         disabled={loading || !widthValid}
       >
-        {loading ? <CircularProgress size={24} /> : '壓縮 PDF'}
+        {loading ? <CircularProgress size={24} /> : '壓縮'}
       </Button>
     </Paper>
   );
