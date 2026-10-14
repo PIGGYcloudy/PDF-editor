@@ -2,7 +2,7 @@ import MergeWorkspace from './components/MergeWorkspace';
 import { useState } from 'react';
 import { Alert, Box, Button, Container, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, LinearProgress, Paper, Snackbar, Stack, Tab, Tabs, Typography } from '@mui/material';
 import { CallMergeOutlined, EditOutlined, HelpOutline, PictureAsPdfOutlined } from '@mui/icons-material';
-import ColorModeMenu from './components/ColorModeMenu';
+import ColorModeSwitch from './components/ColorModeSwitch';
 import HelpDialog from './components/HelpDialog';
 import FileList from './components/FileList';
 import PageGrid from './components/PageGrid';
@@ -272,10 +272,11 @@ function App({ colorMode, onColorModeChange }: {
           <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
             <Stack direction="row" alignItems="center" spacing={1.5} sx={{ minWidth: 0 }}>
               <Box sx={{ width: 36, height: 36, flexShrink: 0, display: 'grid', placeItems: 'center', bgcolor: 'primary.main', color: 'primary.contrastText', borderRadius: 2.5 }}><PictureAsPdfOutlined fontSize="small" /></Box>
-              <Typography component="h1" variant="h6">PDF 編輯器</Typography>
+              {/* 手機上頁首空間留給外觀切換，標題只保留給輔助技術；PDF 圖示仍標示這是什麼 */}
+              <Typography component="h1" variant="h6" noWrap sx={{ '@media (max-width: 599.95px)': { position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' } }}>PDF 編輯器</Typography>
             </Stack>
             <Stack direction="row" alignItems="center" gap={1}>
-              <ColorModeMenu value={colorMode} onChange={onColorModeChange} />
+              <ColorModeSwitch value={colorMode} onChange={onColorModeChange} />
               <Button startIcon={<HelpOutline />} onClick={() => setHelpOpen(true)} color="inherit" aria-label="使用說明" sx={{ flexShrink: 0, minWidth: 44, px: { xs: 1.25, sm: 2.25 }, '& .MuiButton-startIcon': { mr: { xs: 0, sm: 1 }, ml: { xs: 0, sm: -0.5 } } }}>
                 <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>使用說明</Box>
               </Button>
