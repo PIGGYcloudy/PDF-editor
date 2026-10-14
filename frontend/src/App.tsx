@@ -2,6 +2,7 @@ import MergeWorkspace from './components/MergeWorkspace';
 import { useState } from 'react';
 import { Alert, Box, Button, Container, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, LinearProgress, Paper, Snackbar, Stack, Tab, Tabs, Typography } from '@mui/material';
 import { CallMergeOutlined, EditOutlined, HelpOutline, PictureAsPdfOutlined } from '@mui/icons-material';
+import ColorModeMenu from './components/ColorModeMenu';
 import HelpDialog from './components/HelpDialog';
 import FileList from './components/FileList';
 import PageGrid from './components/PageGrid';
@@ -19,6 +20,7 @@ import { useEditorShortcuts } from './hooks/useEditorShortcuts';
 import { getSaveExtension, useFileSave } from './hooks/useFileSave';
 import { usePdfWorkspace } from './hooks/usePdfWorkspace';
 import { useStatus } from './hooks/useStatus';
+import type { ColorModePreference } from './state/colorMode';
 import type { WorkspaceFile } from './state/workspace';
 import type { ConvertDpi, ConvertFormat, ImagePageSize } from './types';
 import { describePageSizes } from './utils/pageSizes';
@@ -27,7 +29,10 @@ import {
   normalizeDownloadFilename,
 } from './utils/fileSave';
 
-function App() {
+function App({ colorMode, onColorModeChange }: {
+  colorMode: ColorModePreference;
+  onColorModeChange: (value: ColorModePreference) => void;
+}) {
   const [view, setView] = useState<'edit' | 'merge'>('edit');
   const status = useStatus();
   const workspace = usePdfWorkspace(status);
@@ -270,6 +275,7 @@ function App() {
               <Typography component="h1" variant="h6">PDF 編輯器</Typography>
             </Stack>
             <Stack direction="row" alignItems="center" gap={1}>
+              <ColorModeMenu value={colorMode} onChange={onColorModeChange} />
               <Button startIcon={<HelpOutline />} onClick={() => setHelpOpen(true)} color="inherit" aria-label="使用說明" sx={{ flexShrink: 0, minWidth: 44, px: { xs: 1.25, sm: 2.25 }, '& .MuiButton-startIcon': { mr: { xs: 0, sm: 1 }, ml: { xs: 0, sm: -0.5 } } }}>
                 <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>使用說明</Box>
               </Button>

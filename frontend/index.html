@@ -8,6 +8,16 @@
     <meta name="description" content="在瀏覽器中整理、合併、壓縮 PDF，或轉成圖片。" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PDF 編輯器</title>
+    <script>
+      // 在 React 載入前套用外觀設定，避免重新整理時先閃一下另一種配色
+      try {
+        var mode = localStorage.getItem('pdf-editor.color-mode');
+        if (mode !== 'light' && mode !== 'dark') {
+          mode = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.dataset.colorMode = mode;
+      } catch (e) { /* 無法讀取設定時沿用預設的淺色 */ }
+    </script>
   </head>
   <body>
     <div id="root"></div>
