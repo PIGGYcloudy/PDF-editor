@@ -16,7 +16,7 @@ export default function HelpDialog({ open, onClose, reduceTransparency, onTransp
       <Stack spacing={2.5}>
         {[
           { icon: <UploadFileOutlined />, title: '加入檔案', text: '支援 PDF、PNG、JPG、WebP。一次加入多張圖片時，會依檔名順序合成一份 PDF。' },
-          { icon: <TouchAppOutlined />, title: '編輯頁面', text: '選取頁面後可旋轉、刪除或抽出成新檔案，拖曳可調整順序。頁面變更會先暫存，按「套用變更」或使用其他工具時才會寫入文件。' },
+          { icon: <TouchAppOutlined />, title: '編輯頁面', text: '選取頁面後可旋轉、刪除或抽出成新檔案，拖曳可調整順序。頁面變更會先暫存，按「套用變更」或使用其他工具時才會寫入文件。手機掃描的頁面大小不一時，可用「統一尺寸」對齊成 A4 等紙張。' },
           { icon: <CallMergeOutlined />, title: '合併文件', text: '在「合併」分頁勾選文件、安排順序，也可只取部分頁碼。' },
           { icon: <DownloadOutlined />, title: '另存', text: '檔案只在伺服器暫存一段時間，完成後請按「另存 PDF」存到裝置。' },
         ].map((step) => <Stack key={step.title} direction="row" spacing={2}>

@@ -1,5 +1,6 @@
 import { Box, Button, Paper, Stack, Tooltip } from '@mui/material';
 import {
+  AspectRatio as PageSizeIcon,
   CallSplit as SplitIcon,
   Compress as CompressIcon,
   Download as DownloadIcon,
@@ -10,7 +11,7 @@ import {
 } from '@mui/icons-material';
 import type { ReactNode } from 'react';
 
-export type ToolPanel = 'split' | 'compress' | 'watermark' | 'convert';
+export type ToolPanel = 'split' | 'pageSize' | 'compress' | 'watermark' | 'convert';
 
 interface ToolBarProps {
   activePanel: ToolPanel | null;
@@ -78,6 +79,7 @@ function ToolBar({
           sx={{ order: { xs: 2, sm: 0 }, flex: { xs: '1 1 100%', sm: 1 }, minWidth: 0, overflowX: 'auto', scrollbarWidth: 'none', p: 0.5, '&::-webkit-scrollbar': { display: 'none' } }}
         >
           {panelButton('split', '拆分', <SplitIcon />)}
+          {panelButton('pageSize', '統一尺寸', <PageSizeIcon />)}
           {panelButton('compress', '壓縮', <CompressIcon />)}
           {panelButton('watermark', '浮水印', <WatermarkIcon />)}
           {panelButton('convert', '轉成圖片', <PhotoIcon />)}

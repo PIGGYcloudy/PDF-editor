@@ -153,3 +153,23 @@ test('merge separate ranges in chosen order and download the named result', asyn
   await page.getByRole('button', { name: '編輯合併結果' }).click();
   await expect(page.getByText('頁面 (3)', { exact: true })).toBeVisible();
 });
+
+test('normalizes page size to a chosen paper and keeps it undoable', async ({ page, request }, info) => {
+  await page.locator('input[type=file]').first().setInputFiles(fixture);
+  await expect(page.getByText('頁面預覽 (3 頁)', { exact: true })).toBeVisible();
+  const original = (await read(page)).workspace.files[0].id;
+  await page.getByRole('button', { name: '統一頁面尺寸', exact: true }).click();
+  await page.getByRole('combobox', { name: '紙張尺寸' }).click();
+  await page.getByRole('option', { name: /^Letter/ }).click();
+  await page.getByRole('button', { name: '填滿裁切', exact: true }).click();
+  await page.screenshot({ path: info.outputPath('page-size-panel.png'), fullPage: true });
+  await page.getByRole('button', { name: '統一為 Letter', exact: true }).click();
+  await expect(page.getByText('已將所有頁面統一為 Letter。', { exact: true })).toBeVisible();
+  const resized = (await read(page)).workspace.files[0].id;
+  expect(resized).not.toBe(original);
+  const pages = (await (await request.get(`/api/pdf/pages/${resized}`)).json()).pages;
+  expect(pages.map((item: { width: number; height: number }) => [item.width, item.height]))
+    .toEqual([[612, 792], [612, 792], [612, 792]]);
+  await page.getByRole('button', { name: '復原上一步', exact: true }).click();
+  await expect.poll(async () => (await read(page)).workspace.files[0].id).toBe(original);
+});

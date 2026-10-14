@@ -13,6 +13,7 @@ import {
   getPages,
   imagesToPdf,
   mergePDFs,
+  normalizePageSize,
   splitPDF,
   uploadPDF,
 } from '../services/api';
@@ -38,6 +39,7 @@ import type {
   CompressOptions,
   ImagePageSize,
   ImageWatermarkConfig,
+  PageSizeOptions,
   PDFFile,
   Page,
   SplitFileInfo,
@@ -398,6 +400,28 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
     selectedPages.size > 0 ? selectedPositions() : undefined
   );
 
+  const normalizeSize = (options: PageSizeOptions) => {
+    if (blockedByPendingEdits()) {
+      return Promise.resolve(false);
+    }
+    const pageNumbers = selectedPageNumbers();
+    return editCurrentFile(
+      (pdfId) => normalizePageSize(
+        pdfId,
+        options,
+        pageNumbers ? 'selected' : 'all',
+        pageNumbers,
+      ),
+      (result) => ({ id: result.newPdfId }),
+      {
+        success: () => `已將${pageNumbers ? ` ${pageNumbers.length} 個選取的頁面` : '所有頁面'}統一為 ${options.size}。`,
+        failure: '統一頁面尺寸失敗。',
+        previewFailure: '頁面尺寸已統一，但新版本預覽載入失敗。',
+      },
+      { clearSelection: false },
+    );
+  };
+
   const watermarkMessages = {
     success: () => '已加上浮水印。',
     failure: '加上浮水印失敗。',
@@ -650,6 +674,7 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
     extractSelectedPages,
     split,
     compress,
+    normalizeSize,
     addTextWatermark: addTextWatermarkToCurrent,
     addImageWatermark: addImageWatermarkToCurrent,
     undo,
