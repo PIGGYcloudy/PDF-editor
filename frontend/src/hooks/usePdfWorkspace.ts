@@ -401,9 +401,6 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
   );
 
   const normalizeSize = (options: PageSizeOptions) => {
-    if (blockedByPendingEdits()) {
-      return Promise.resolve(false);
-    }
     const pageNumbers = selectedPageNumbers();
     return editCurrentFile(
       (pdfId) => normalizePageSize(
@@ -418,7 +415,7 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
         failure: '統一頁面尺寸失敗。',
         previewFailure: '頁面尺寸已統一，但新版本預覽載入失敗。',
       },
-      { clearSelection: false },
+      { clearSelection: false, label: '統一頁面尺寸' },
     );
   };
 
