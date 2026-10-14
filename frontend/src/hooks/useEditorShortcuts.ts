@@ -6,6 +6,7 @@ interface EditorShortcuts {
   onSelectAll: () => void;
   onClearSelection: () => void;
   onUndo: () => void;
+  onRedo: () => void;
 }
 
 /** 在輸入文字、對話框或選單中時，不攔截鍵盤快速鍵。 */
@@ -21,7 +22,7 @@ function shouldIgnore(target: EventTarget | null): boolean {
 
 /**
  * 頁面編輯的鍵盤快速鍵：Delete 刪除選取的頁面、Ctrl/⌘+A 全選、
- * Ctrl/⌘+Z 復原、Esc 取消選取。
+ * Ctrl/⌘+Z 復原、Ctrl/⌘+Shift+Z 或 Ctrl+Y 重做、Esc 取消選取。
  */
 export function useEditorShortcuts(shortcuts: EditorShortcuts) {
   const latest = useRef(shortcuts);
@@ -42,6 +43,8 @@ export function useEditorShortcuts(shortcuts: EditorShortcuts) {
 
       if (modifier && !event.shiftKey && key === 'z') {
         handler = current.onUndo;
+      } else if (modifier && ((event.shiftKey && key === 'z') || (!event.shiftKey && key === 'y'))) {
+        handler = current.onRedo;
       } else if (modifier && key === 'a') {
         handler = current.onSelectAll;
       } else if (!modifier && (key === 'delete' || key === 'backspace')) {

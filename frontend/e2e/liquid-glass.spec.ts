@@ -18,7 +18,7 @@ test('optional help supports keyboard dismissal, focus return and persistent rea
   await page.screenshot({ path: info.outputPath('welcome-desktop.png'), fullPage: true });
   const help = page.getByRole('button', { name: '使用說明' });
   await help.click();
-  const dialog = page.getByRole('dialog', { name: '快速上手' });
+  const dialog = page.getByRole('dialog', { name: '使用說明' });
   await expect(dialog).toBeVisible();
   await dialog.getByRole('checkbox', { name: '降低透明度' }).check();
   await page.keyboard.press('Escape');
@@ -43,7 +43,7 @@ test('upload is reachable from the keyboard without mandatory onboarding', async
   const chooserEvent = page.waitForEvent('filechooser');
   await page.keyboard.press('Enter');
   await (await chooserEvent).setFiles(fixture);
-  await expect(page.getByText('頁面預覽 (3 頁)', { exact: true })).toBeVisible();
+  await expect(page.getByText('頁面 (3)', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '另存 PDF', exact: true })).toBeEnabled();
 });
 
@@ -52,7 +52,7 @@ test('small screens keep page actions and pending-edit controls within the viewp
   await page.goto('/');
   await page.screenshot({ path: info.outputPath('welcome-mobile.png'), fullPage: true });
   await page.locator('input[type=file]').first().setInputFiles(fixture);
-  await expect(page.getByText('頁面預覽 (3 頁)', { exact: true })).toBeVisible();
+  await expect(page.getByText('頁面 (3)', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '向右旋轉第 1 頁', exact: true }).click();
   await page.getByRole('button', { name: '全選', exact: true }).click();
   for (const width of [320, 390, 768]) {
@@ -71,11 +71,11 @@ test('small screens keep page actions and pending-edit controls within the viewp
   await page.evaluate(() => scrollTo(0, 0));
   await page.screenshot({ path: info.outputPath('editor-mobile.png'), fullPage: true });
   await page.getByRole('button', { name: '使用說明' }).click();
-  await expect(page.getByRole('dialog', { name: '快速上手' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: '使用說明' })).toBeVisible();
   await page.keyboard.press('Delete');
   await page.keyboard.press('Escape');
-  await expect(page.getByText('頁面預覽 (3 頁)', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '套用並另存 PDF', exact: true })).toBeEnabled();
+  await expect(page.getByText('頁面 (3)', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '另存 PDF', exact: true })).toBeEnabled();
 });
 
 test('system contrast and reduced-motion preferences preserve a readable interface', async ({ page }) => {
@@ -84,8 +84,8 @@ test('system contrast and reduced-motion preferences preserve a readable interfa
   await expect(page.locator('header')).toHaveCSS('backdrop-filter', 'none');
   await expect(page.getByRole('button', { name: '使用說明' })).toHaveCSS('transition-duration', '1e-05s');
   await page.getByRole('button', { name: '使用說明' }).click();
-  await expect(page.getByRole('dialog', { name: '快速上手' })).toBeVisible();
-  await page.getByRole('button', { name: '開始使用' }).click();
+  await expect(page.getByRole('dialog', { name: '使用說明' })).toBeVisible();
+  await page.getByRole('button', { name: '完成' }).click();
   await expect(page.getByRole('button', { name: '選擇 PDF 或圖片' })).toBeVisible();
 });
 
@@ -96,8 +96,8 @@ test('blocked preference storage does not prevent upload or readability adjustme
   await page.goto('/');
   await page.getByRole('button', { name: '使用說明' }).click();
   await page.getByRole('checkbox', { name: '降低透明度' }).check();
-  await page.getByRole('button', { name: '開始使用' }).click();
+  await page.getByRole('button', { name: '完成' }).click();
   await expect(page.locator('header')).toHaveCSS('backdrop-filter', 'none');
   await page.locator('input[type=file]').first().setInputFiles(fixture);
-  await expect(page.getByText('頁面預覽 (3 頁)', { exact: true })).toBeVisible();
+  await expect(page.getByText('頁面 (3)', { exact: true })).toBeVisible();
 });

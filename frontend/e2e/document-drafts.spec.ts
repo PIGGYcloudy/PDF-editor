@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 const pages = [1, 2, 3].map((pageNumber) => ({ pageNumber, width: 595, height: 842 }));
-const edits = { baseline: [1, 2, 3], pages: pages.map(({ pageNumber }) => ({ pageNumber, rotation: 0 })), history: [] };
+const edits = { baseline: [1, 2, 3], pages: pages.map(({ pageNumber }) => ({ pageNumber, rotation: 0 })), history: [], labels: [], future: [], futureLabels: [] };
 const read = (page: Page) => page.evaluate(() => JSON.parse(sessionStorage.getItem('pdf-editor.workspace.v1')!));
 
 test.beforeEach(async ({ page }) => {
@@ -29,7 +29,7 @@ test.beforeEach(async ({ page }) => {
     }
   });
   await page.goto('/');
-  await expect(page.getByText(/已恢復此分頁的工作區/)).toBeVisible();
+  await expect(page.getByText(/已恢復上次的工作區/)).toBeVisible();
 });
 
 test('switch and refresh retain independent drafts and undo histories', async ({ page }) => {
@@ -41,36 +41,36 @@ test('switch and refresh retain independent drafts and undo histories', async ({
   await page.getByRole('button', { name: '向右旋轉第 1 頁', exact: true }).click();
   await page.getByRole('button', { name: '刪除第 2 頁', exact: true }).click();
   const a = (await read(page)).edits;
-  await page.getByRole('button', { name: 'b.pdf', exact: true }).click();
-  await expect(page.getByText('頁面預覽 (3 頁)', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /^b\.pdf/ }).click();
+  await expect(page.getByText('頁面 (3)', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '向左旋轉第 3 頁', exact: true }).click();
   const b = (await read(page)).edits;
-  await page.getByRole('button', { name: 'a.pdf', exact: true }).click();
-  await expect(page.getByText('頁面預覽 (2 頁)', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /^a\.pdf/ }).click();
+  await expect(page.getByText('頁面 (2)', { exact: true })).toBeVisible();
   expect((await read(page)).edits).toEqual(a);
   expect(dialogs).toEqual([]);
   await page.reload();
-  await expect(page.getByText(/已恢復此分頁的工作區/)).toBeVisible();
+  await expect(page.getByText(/已恢復上次的工作區/)).toBeVisible();
   expect((await read(page)).edits).toEqual(a);
-  await page.getByRole('button', { name: '復原頁面編輯', exact: true }).click();
-  await expect(page.getByText('頁面預覽 (3 頁)', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'b.pdf', exact: true }).click();
+  await page.getByRole('button', { name: '復原刪除頁面', exact: true }).click();
+  await expect(page.getByText('頁面 (3)', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /^b\.pdf/ }).click();
   await expect.poll(async () => (await read(page)).workspace.currentKey).toBe('b');
   expect((await read(page)).edits).toEqual(b);
-  await page.getByRole('button', { name: '復原頁面編輯', exact: true }).click();
+  await page.getByRole('button', { name: '復原旋轉', exact: true }).click();
   expect((await read(page)).edits.pages[2].rotation).toBe(0);
 });
 
 test('merge applies drafts of both current and background documents', async ({ page }) => {
   await page.getByRole('button', { name: '向右旋轉第 1 頁', exact: true }).click();
-  await page.getByRole('button', { name: 'b.pdf', exact: true }).click();
+  await page.getByRole('button', { name: /^b\.pdf/ }).click();
   await expect.poll(async () => (await read(page)).workspace.currentKey).toBe('b');
   await page.getByRole('button', { name: '刪除第 2 頁', exact: true }).click();
   const applied: string[] = [];
   page.on('request', (request) => {
     if (request.url().endsWith('/apply-edits')) applied.push(request.postDataJSON().pdfId);
   });
-  await page.getByRole('tab', { name: '合併 PDF', exact: true }).click();
+  await page.getByRole('tab', { name: '合併', exact: true }).click();
   await page.getByRole('button', { name: '全選檔案', exact: true }).click();
   const merged = page.waitForRequest('**/api/pdf/merge');
   await page.getByRole('button', { name: '合併 PDF', exact: true }).click();
@@ -78,18 +78,18 @@ test('merge applies drafts of both current and background documents', async ({ p
   expect(applied).toEqual(['a', 'b']);
   expect(request.postData()).toContain('a-applied');
   expect(request.postData()).toContain('b-applied');
-  await expect(page.getByText('PDF 合併成功！', { exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: '編輯 PDF', exact: true }).click();
-  await page.getByRole('button', { name: 'a.pdf', exact: true }).click();
+  await expect(page.getByText(/已建立「合併文件.pdf」/)).toBeVisible();
+  await page.getByRole('tab', { name: '編輯', exact: true }).click();
+  await page.getByRole('button', { name: /^a\.pdf/ }).click();
   await expect.poll(async () => (await read(page)).workspace.currentKey).toBe('a');
-  await page.getByRole('button', { name: '復原上一步', exact: true }).click();
+  await page.getByRole('button', { name: '復原頁面變更', exact: true }).click();
   await expect.poll(async () => (await read(page)).workspace.files[0].id).toBe('a');
   expect((await read(page)).edits).toEqual(edits);
 });
 
 test('failed background apply stops ZIP output and retains its draft', async ({ page }) => {
   await page.getByRole('button', { name: '向右旋轉第 1 頁', exact: true }).click();
-  await page.getByRole('button', { name: 'b.pdf', exact: true }).click();
+  await page.getByRole('button', { name: /^b\.pdf/ }).click();
   await expect.poll(async () => (await read(page)).workspace.currentKey).toBe('b');
   await page.route('**/api/pdf/apply-edits', (route) => route.fulfill({
     status: 500, json: { detail: '模擬背景套用失敗' },
@@ -98,14 +98,14 @@ test('failed background apply stops ZIP output and retains its draft', async ({ 
   page.on('request', (request) => {
     if (request.url().endsWith('/bundle')) bundles++;
   });
-  await page.getByRole('tab', { name: '合併 PDF', exact: true }).click();
+  await page.getByRole('tab', { name: '合併', exact: true }).click();
   await page.getByRole('button', { name: '全選檔案', exact: true }).click();
-  await page.getByRole('button', { name: '下載選取 ZIP (2)', exact: true }).click();
+  await page.getByRole('button', { name: '另存為 ZIP（2 份）', exact: true }).click();
   await expect(page.getByText('模擬背景套用失敗', { exact: true })).toBeVisible();
   expect(bundles).toBe(0);
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByRole('tab', { name: '編輯 PDF', exact: true }).click();
-  await page.getByRole('button', { name: 'a.pdf', exact: true }).click();
+  await page.getByRole('tab', { name: '編輯', exact: true }).click();
+  await page.getByRole('button', { name: /^a\.pdf/ }).click();
   await expect.poll(async () => (await read(page)).workspace.currentKey).toBe('a');
   expect((await read(page)).edits.pages[0].rotation).toBe(90);
 });
@@ -113,17 +113,17 @@ test('failed background apply stops ZIP output and retains its draft', async ({ 
 test('merge tab preserves editor state, validates ranges and sends the chosen order', async ({ page }) => {
   await page.getByRole('button', { name: '向右旋轉第 1 頁', exact: true }).click();
   const draft = (await read(page)).edits;
-  await page.getByRole('tab', { name: '合併 PDF', exact: true }).click();
+  await page.getByRole('tab', { name: '合併', exact: true }).click();
   await page.getByRole('button', { name: '全選檔案', exact: true }).click();
   await page.getByRole('button', { name: '上移 b.pdf', exact: true }).click();
   await page.getByRole('textbox', { name: 'b.pdf 的頁碼範圍', exact: true }).fill('4');
   await expect(page.getByRole('button', { name: '合併 PDF', exact: true })).toBeDisabled();
   await page.getByRole('textbox', { name: 'b.pdf 的頁碼範圍', exact: true }).fill('2-3');
   await page.getByRole('textbox', { name: '合併後的檔案名稱' }).fill('整理結果');
-  await page.getByRole('tab', { name: '編輯 PDF', exact: true }).click();
+  await page.getByRole('tab', { name: '編輯', exact: true }).click();
   expect((await read(page)).edits).toEqual(draft);
   await expect(page.getByRole('button', { name: '全選檔案' })).toHaveCount(0);
-  await page.getByRole('tab', { name: '合併 PDF', exact: true }).click();
+  await page.getByRole('tab', { name: '合併', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'b.pdf 的頁碼範圍', exact: true })).toHaveValue('2-3');
   await expect(page.getByText('已選取 2 份 PDF，合併後 5 頁', { exact: true })).toBeVisible();
   await page.route('**/api/pdf/extract', async (route) => {
@@ -138,6 +138,6 @@ test('merge tab preserves editor state, validates ranges and sends the chosen or
   expect((await read(page)).workspace.currentKey).toBe('a');
   expect((await read(page)).workspace.files.at(-1).name).toBe('整理結果.pdf');
   await page.getByRole('button', { name: '編輯合併結果' }).click();
-  await expect(page.getByRole('tab', { name: '編輯 PDF' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: '編輯', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect.poll(async () => (await read(page)).workspace.currentKey).toBe('merged');
 });

@@ -28,24 +28,50 @@ describe('workspaceReducer', () => {
     const state = reduce(
       { type: 'filesAdded', files: [pdf('a')] },
       { type: 'currentChanged', key: 'a' },
-      { type: 'versionReplaced', key: 'a', version: { id: 'a2', pageCount: 2 } },
+      { type: 'versionReplaced', key: 'a', version: { id: 'a2', pageCount: 2 } , label: '壓縮' },
     );
 
     const file = getCurrentFile(state);
     expect(file).toMatchObject({ key: 'a', id: 'a2', pageCount: 2, size: 1000 });
-    expect(file?.history).toEqual([{ id: 'a', size: 1000, pageCount: 3 }]);
+    expect(file?.history).toEqual([{ id: 'a', size: 1000, pageCount: 3, label: '壓縮' }]);
   });
 
   it('restores the previous version on undo', () => {
     const state = reduce(
       { type: 'filesAdded', files: [pdf('a')] },
-      { type: 'versionReplaced', key: 'a', version: { id: 'a2', pageCount: 2 } },
-      { type: 'versionReplaced', key: 'a', version: { id: 'a3', size: 500 } },
+      { type: 'versionReplaced', key: 'a', version: { id: 'a2', pageCount: 2 } , label: '壓縮' },
+      { type: 'versionReplaced', key: 'a', version: { id: 'a3', size: 500 } , label: '壓縮' },
       { type: 'versionRestored', key: 'a' },
     );
 
     expect(state.files[0]).toMatchObject({ id: 'a2', pageCount: 2, size: 1000 });
-    expect(state.files[0].history).toEqual([{ id: 'a', size: 1000, pageCount: 3 }]);
+    expect(state.files[0].history).toEqual([{ id: 'a', size: 1000, pageCount: 3, label: '壓縮' }]);
+    expect(state.files[0].future).toEqual([{ id: 'a3', size: 500, pageCount: 2, label: '壓縮' }]);
+  });
+
+  it('redoes an undone version and forgets it after a new edit', () => {
+    const undone = reduce(
+      { type: 'filesAdded', files: [pdf('a')] },
+      { type: 'versionReplaced', key: 'a', version: { id: 'a2' }, label: '加上浮水印' },
+      { type: 'versionRestored', key: 'a' },
+    );
+    const redone = workspaceReducer(undone, { type: 'versionRedone', key: 'a' });
+    expect(redone.files[0]).toMatchObject({ id: 'a2', future: [] });
+    expect(redone.files[0].history).toEqual([{ id: 'a', size: 1000, pageCount: 3, label: '加上浮水印' }]);
+
+    const replaced = workspaceReducer(undone, {
+      type: 'versionReplaced', key: 'a', version: { id: 'a9' }, label: '壓縮',
+    });
+    expect(replaced.files[0].future).toEqual([]);
+    expect(workspaceReducer(replaced, { type: 'versionRedone', key: 'a' })).toEqual(replaced);
+  });
+
+  it('selects uploaded files for merging but not generated ones', () => {
+    const state = reduce(
+      { type: 'filesAdded', files: [pdf('a'), pdf('b')], selectForMerge: true },
+      { type: 'filesAdded', files: [pdf('split')] },
+    );
+    expect(state.mergeSelection).toEqual(['a', 'b']);
   });
 
   it('ignores undo without history', () => {
@@ -58,7 +84,7 @@ describe('workspaceReducer', () => {
   it(`keeps at most ${MAX_HISTORY} undo steps`, () => {
     const actions: WorkspaceAction[] = [{ type: 'filesAdded', files: [pdf('v0')] }];
     for (let index = 1; index <= MAX_HISTORY + 5; index += 1) {
-      actions.push({ type: 'versionReplaced', key: 'v0', version: { id: `v${index}` } });
+      actions.push({ type: 'versionReplaced', key: 'v0', version: { id: `v${index}` } , label: '壓縮' });
     }
 
     const { history } = reduce(...actions).files[0];
@@ -76,7 +102,7 @@ describe('workspaceReducer', () => {
       { type: 'mergeToggled', key: 'b' },
       { type: 'mergeToggled', key: 'a' },
       // 編輯後合併使用新版本的 ID
-      { type: 'versionReplaced', key: 'c', version: { id: 'c2' } },
+      { type: 'versionReplaced', key: 'c', version: { id: 'c2' } , label: '壓縮' },
     );
 
     expect(getMergeFiles(state).map((file) => file.id)).toEqual(['c2', 'b']);

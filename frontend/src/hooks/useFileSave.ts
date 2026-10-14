@@ -83,8 +83,8 @@ function getSaveSuccessMessage(
   }
 
   return destination.kind === 'native'
-    ? `轉換成功！已將 ${preparedSave.imageCount} 張圖片儲存為「${filename}」。`
-    : `轉換成功！已開始下載包含 ${preparedSave.imageCount} 張圖片的「${filename}」。`;
+    ? `已將 ${preparedSave.imageCount} 張圖片儲存為「${filename}」。`
+    : `已開始下載「${filename}」，包含 ${preparedSave.imageCount} 張圖片。`;
 }
 
 async function prepareSave(request: SaveRequest): Promise<PreparedSave> {

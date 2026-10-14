@@ -1,9 +1,9 @@
-fastapi==0.141.1
-uvicorn==0.52.4
+fastapi==0.142.2
+uvicorn==0.54.0
 python-multipart==0.0.32
 pypdf==6.19.0
 Pillow==12.3.0
 pdf2image==1.17.0
 reportlab==5.0.1
-python-dotenv==1.2.3
+python-dotenv==1.2.4
 aiofiles==25.1.0

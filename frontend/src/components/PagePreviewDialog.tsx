@@ -99,7 +99,7 @@ function PagePreviewDialog({
           <CloseIcon />
         </IconButton>
       </DialogTitle>
-      <DialogContent dividers sx={{ textAlign: 'center', bgcolor: '#f5f5f5' }}>
+      <DialogContent dividers sx={{ textAlign: 'center', bgcolor: 'var(--surface-muted)' }}>
         {url && failedUrl === url && (
           <Alert severity="error" action={<Button color="inherit" onClick={() => {
             setLoadedUrl(null);

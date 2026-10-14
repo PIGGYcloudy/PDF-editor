@@ -21,13 +21,14 @@ test.afterEach(async ({ page, request }) => {
 });
 
 async function open(page: Page, name: string) {
-  await page.getByRole('button', { name, exact: true }).click();
-  await expect(page.getByText('正在處理文件，請稍候…', { exact: true })).toHaveCount(0);
+  // 有未套用變更的文件，按鈕名稱後面會加上說明
+  await page.getByRole('button', { name: new RegExp(`^${name.replace(/\./g, '\\.')}`) }).click();
+  await expect(page.getByText('處理中…', { exact: true })).toHaveCount(0);
 }
 
 test('real documents retain reordered drafts across upload, switching and reload; ZIP includes both edits', async ({ page }, info) => {
   await page.locator('input[type=file]').first().setInputFiles(fixture);
-  await expect(page.getByText('頁面預覽 (3 頁)', { exact: true })).toBeVisible();
+  await expect(page.getByText('頁面 (3)', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '向右旋轉第 1 頁', exact: true }).click();
   const card = page.getByRole('button', { name: '第 1 頁，已旋轉 90 度', exact: true });
   await card.focus();
@@ -43,20 +44,21 @@ test('real documents retain reordered drafts across upload, switching and reload
   await page.locator('input[type=file]').first().setInputFiles({
     name: 'second.pdf', mimeType: 'application/pdf', buffer: await pdf.readFile(fixture),
   });
-  await expect(page.getByText('頁面預覽 (3 頁)', { exact: true })).toBeVisible();
+  await expect(page.getByText('頁面 (3)', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '向左旋轉第 2 頁', exact: true }).click();
   const draftB = (await read(page)).edits;
   await open(page, 'three-pages.pdf');
   expect((await read(page)).edits).toEqual(draftA);
   await page.reload();
-  await expect(page.getByText(/已恢復此分頁的工作區/)).toBeVisible();
+  await expect(page.getByText(/已恢復上次的工作區/)).toBeVisible();
   expect((await read(page)).edits).toEqual(draftA);
   await open(page, 'second.pdf');
   expect((await read(page)).edits).toEqual(draftB);
-  await page.getByRole('tab', { name: '合併 PDF', exact: true }).click();
-  await page.getByRole('button', { name: '全選檔案', exact: true }).click();
-  await page.getByRole('button', { name: '下載選取 ZIP (2)', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: '儲存檔案' })).toBeVisible();
+  await page.getByRole('tab', { name: '合併', exact: true }).click();
+  // Uploaded documents are selected for merging by default.
+  await expect(page.getByRole('button', { name: '取消全選', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '另存為 ZIP（2 份）', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '另存檔案' })).toBeVisible();
   const downloadEvent = page.waitForEvent('download');
   await page.getByRole('button', { name: '下載', exact: true }).click();
   const download = await downloadEvent;
@@ -75,7 +77,7 @@ test('image upload uses natural filename order and A4 output', async ({ page }, 
   const response = await responseEvent;
   expect(response.ok()).toBeTruthy();
   expect((await response.json()).name).toBe('IMG_2_等2張.pdf');
-  await expect(page.getByText('頁面預覽 (2 頁)', { exact: true })).toBeVisible();
+  await expect(page.getByText('頁面 (2)', { exact: true })).toBeVisible();
   const state = await read(page);
   expect(state.pages.every((p: { width: number; height: number }) => p.width > 840 && p.height > 590)).toBeTruthy();
   await page.getByRole('button', { name: '另存 PDF', exact: true }).click();
@@ -88,12 +90,12 @@ test('image upload uses natural filename order and A4 output', async ({ page }, 
 
 test('mixed PDF and image upload supports fit-to-image output', async ({ page }, info) => {
   const fs = await import('node:fs/promises');
-  await page.getByRole('button', { name: '依圖片大小', exact: true }).click();
+  await page.getByRole('button', { name: '與圖片相同', exact: true }).click();
   await page.locator('input[type=file]').first().setInputFiles([
     { name: 'mixed.pdf', mimeType: 'application/pdf', buffer: await fs.readFile(fixture) },
     image('photo.png', red),
   ]);
-  await expect(page.getByText(/已上傳 1 份 PDF/)).toBeVisible();
+  await expect(page.getByText(/已加入 1 份 PDF/)).toBeVisible();
   expect((await read(page)).workspace.files).toHaveLength(2);
   await open(page, 'photo.pdf');
   const state = await read(page);
@@ -105,17 +107,16 @@ test('mixed PDF and image upload supports fit-to-image output', async ({ page },
 
 test('merge separate ranges in chosen order and download the named result', async ({ page, request }, info) => {
   await page.locator('input[type=file]').first().setInputFiles(fixture);
-  await expect(page.getByText('頁面預覽 (3 頁)', { exact: true })).toBeVisible();
+  await expect(page.getByText('頁面 (3)', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '向右旋轉第 1 頁', exact: true }).click();
-  await page.getByRole('tab', { name: '合併 PDF' }).click();
+  await page.getByRole('tab', { name: '合併', exact: true }).click();
   const { readFile } = await import('node:fs/promises');
   await page.locator('input[type=file]').first().setInputFiles({ name: 'second.pdf', mimeType: 'application/pdf', buffer: await readFile(fixture) });
   await expect(page.getByRole('checkbox', { name: /second.pdf/ })).toBeVisible();
-  await expect(page.getByText('正在處理文件，請稍候…')).toHaveCount(0);
+  await expect(page.getByText('處理中…')).toHaveCount(0);
   const before = await read(page);
   expect(before.workspace.files.find((file: { key: string }) => file.key === before.workspace.currentKey).name).toBe('three-pages.pdf');
   expect(before.edits.pages[0].rotation).toBe(90);
-  await page.getByRole('button', { name: '全選檔案', exact: true }).click();
   // Keyboard sorting is available in addition to drag and arrow buttons.
   const handle = page.getByRole('button', { name: '拖曳排序 second.pdf', exact: true });
   await handle.focus();
@@ -134,7 +135,7 @@ test('merge separate ranges in chosen order and download the named result', asyn
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath('merge-mobile.png'), fullPage: true });
   await page.getByRole('button', { name: '合併 PDF', exact: true }).click();
-  await expect(page.getByRole('button', { name: '下載 PDF', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '另存 PDF', exact: true })).toBeVisible();
   const state = await read(page);
   const merged = state.workspace.files.at(-1);
   expect(merged.pageCount).toBe(3);
@@ -142,7 +143,7 @@ test('merge separate ranges in chosen order and download the named result', asyn
   expect(state.workspace.currentKey).toBe(before.workspace.currentKey);
   const response = await request.get(`/api/pdf/pages/${merged.id}`);
   expect((await response.json()).pageCount).toBe(3);
-  await page.getByRole('button', { name: '下載 PDF', exact: true }).click();
+  await page.getByRole('button', { name: '另存 PDF', exact: true }).click();
   const downloadEvent = page.waitForEvent('download');
   await page.getByRole('button', { name: '下載', exact: true }).click();
   const download = await downloadEvent;
@@ -150,5 +151,25 @@ test('merge separate ranges in chosen order and download the named result', asyn
   await download.saveAs(info.outputPath('review-merged.pdf'));
   expect(await download.failure()).toBeNull();
   await page.getByRole('button', { name: '編輯合併結果' }).click();
+  await expect(page.getByText('頁面 (3)', { exact: true })).toBeVisible();
+});
+
+test('normalizes page size to a chosen paper and keeps it undoable', async ({ page, request }, info) => {
+  await page.locator('input[type=file]').first().setInputFiles(fixture);
   await expect(page.getByText('頁面預覽 (3 頁)', { exact: true })).toBeVisible();
+  const original = (await read(page)).workspace.files[0].id;
+  await page.getByRole('button', { name: '統一頁面尺寸', exact: true }).click();
+  await page.getByRole('combobox', { name: '紙張尺寸' }).click();
+  await page.getByRole('option', { name: /^Letter/ }).click();
+  await page.getByRole('button', { name: '填滿裁切', exact: true }).click();
+  await page.screenshot({ path: info.outputPath('page-size-panel.png'), fullPage: true });
+  await page.getByRole('button', { name: '統一為 Letter', exact: true }).click();
+  await expect(page.getByText('已將所有頁面統一為 Letter。', { exact: true })).toBeVisible();
+  const resized = (await read(page)).workspace.files[0].id;
+  expect(resized).not.toBe(original);
+  const pages = (await (await request.get(`/api/pdf/pages/${resized}`)).json()).pages;
+  expect(pages.map((item: { width: number; height: number }) => [item.width, item.height]))
+    .toEqual([[612, 792], [612, 792], [612, 792]]);
+  await page.getByRole('button', { name: '復原上一步', exact: true }).click();
+  await expect.poll(async () => (await read(page)).workspace.files[0].id).toBe(original);
 });

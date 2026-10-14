@@ -8,7 +8,7 @@ function snapshot(): WorkspaceSnapshot {
     version: 1,
     workspace: {
       files: [{ key: 'a', id: 'version2', name: 'report.pdf', size: 1234, pageCount: 3,
-        history: [{ id: 'original', size: 1500, pageCount: 3 }] }],
+        history: [{ id: 'original', size: 1500, pageCount: 3 }], future: [] }],
       currentKey: 'a', mergeSelection: ['a'],
     },
     pages: [1, 2, 3].map((pageNumber) => ({ pageNumber, width: 595, height: 842 })),
@@ -16,6 +16,9 @@ function snapshot(): WorkspaceSnapshot {
       baseline: [1, 2, 3],
       pages: [{ pageNumber: 3, rotation: 90 }, { pageNumber: 1, rotation: 0 }],
       history: [[1, 2, 3].map((pageNumber) => ({ pageNumber, rotation: 0 }))],
+      labels: ['刪除頁面'],
+      future: [],
+      futureLabels: [],
     },
   };
 }
@@ -28,6 +31,16 @@ describe('workspace recovery', () => {
     expect(pageEditsReducer(restored.edits, { type: 'undo' }).pages.map((p) => p.pageNumber))
       .toEqual([1, 2, 3]);
     expect(restored.pages[0].thumbnailUrl).toBe('/api/pdf/thumbnail/version2/page/1?size=medium');
+  });
+
+  it('fills undo labels and redo stacks missing from older snapshots', () => {
+    const old = snapshot() as unknown as { edits: Record<string, unknown> };
+    delete old.edits.labels;
+    delete old.edits.future;
+    delete old.edits.futureLabels;
+    const restored = parseSnapshot(JSON.stringify(old))!;
+    expect(restored.edits).toMatchObject({ labels: ['頁面編輯'], future: [], futureLabels: [] });
+    expect(restored.workspace.files[0].future).toEqual([]);
   });
 
   it.each([null, '', '{}', '{broken', '{"version":2}'])('ignores invalid storage: %s', (raw) => {

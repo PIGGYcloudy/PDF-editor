@@ -10,8 +10,8 @@ async function snapshot(page: Page): Promise<WorkspaceSnapshot> {
 
 async function upload(page: Page) {
   await page.locator('input[type=file]').first().setInputFiles(fixture);
-  await expect(page.getByText('頁面預覽 (3 頁)', { exact: true })).toBeVisible();
-  await expect(page.getByText('正在處理文件，請稍候…', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('頁面 (3)', { exact: true })).toBeVisible();
+  await expect(page.getByText('處理中…', { exact: true })).toHaveCount(0);
 }
 
 test.beforeEach(async ({ page }) => {
@@ -33,21 +33,21 @@ test('refresh restores pending edits and undo; save applies the recovered change
   await upload(page);
   await page.getByRole('button', { name: '向右旋轉第 1 頁', exact: true }).click();
   await page.getByRole('button', { name: '刪除第 2 頁', exact: true }).click();
-  await expect(page.getByText('頁面預覽 (2 頁)', { exact: true })).toBeVisible();
+  await expect(page.getByText('頁面 (2)', { exact: true })).toBeVisible();
   const before = await snapshot(page);
   await page.reload();
-  await expect(page.getByText(/已恢復此分頁的工作區/)).toBeVisible();
+  await expect(page.getByText(/已恢復上次的工作區/)).toBeVisible();
   expect((await snapshot(page)).edits).toEqual(before.edits);
-  await page.getByRole('button', { name: '復原頁面編輯', exact: true }).click();
-  await expect(page.getByText('頁面預覽 (3 頁)', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '復原刪除頁面', exact: true }).click();
+  await expect(page.getByText('頁面 (3)', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '刪除第 2 頁', exact: true }).click();
 
   const applyRequest = page.waitForRequest((req) => req.url().endsWith('/api/pdf/apply-edits'));
-  await page.getByRole('button', { name: '套用並另存 PDF', exact: true }).click();
+  await page.getByRole('button', { name: '另存 PDF', exact: true }).click();
   expect((await applyRequest).postDataJSON().pages).toEqual([
     { pageNumber: 1, rotation: 90 }, { pageNumber: 3, rotation: 0 },
   ]);
-  await expect(page.getByRole('dialog', { name: '儲存檔案' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: '另存檔案' })).toBeVisible();
   const downloadEvent = page.waitForEvent('download');
   await page.getByRole('button', { name: '下載', exact: true }).click();
   const download = await downloadEvent;
@@ -62,7 +62,7 @@ test('failed apply keeps edits and does not download the old PDF', async ({ page
   await page.route('**/api/pdf/apply-edits', (route) => route.fulfill({
     status: 500, contentType: 'application/json', body: JSON.stringify({ detail: '模擬套用失敗' }),
   }));
-  await page.getByRole('button', { name: '套用並另存 PDF', exact: true }).click();
+  await page.getByRole('button', { name: '另存 PDF', exact: true }).click();
   await expect(page.getByText('模擬套用失敗', { exact: true })).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect((await snapshot(page)).edits.pages[0].rotation).toBe(90);
@@ -90,28 +90,29 @@ test('an expired PDF can still be removed from the workspace', async ({ page, re
   await upload(page);
   const id = (await snapshot(page)).workspace.files[0].id;
   expect((await request.delete(`/api/pdf/${id}`)).ok()).toBeTruthy();
-  await page.getByRole('button', { name: '刪除 three-pages.pdf', exact: true }).click();
-  await expect(page.getByText('PDF 檔案刪除成功！', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '移除 three-pages.pdf', exact: true }).click();
+  await page.getByRole('dialog', { name: /移除「three-pages.pdf」/ }).getByRole('button', { name: '移除', exact: true }).click();
+  await expect(page.getByText('已移除「three-pages.pdf」。', { exact: true })).toBeVisible();
   expect((await snapshot(page)).workspace.files).toHaveLength(0);
 });
 
 test('split files can be downloaded together as one ZIP', async ({ page }, testInfo) => {
   await upload(page);
-  await page.getByRole('button', { name: '拆分 PDF', exact: true }).click();
+  await page.getByRole('button', { name: '拆分', exact: true }).click();
   await page.getByRole('textbox', { name: '頁碼範圍', exact: true }).fill('1, 2-3');
-  await page.getByRole('button', { name: '拆分 PDF', exact: true }).last().click();
-  await expect(page.getByText(/已拆分成 2 個檔案/)).toBeVisible();
-  // The original plus both generated files can be selected in one action.
-  await page.getByRole('tab', { name: '合併 PDF', exact: true }).click();
+  await page.getByRole('region', { name: '拆分設定' }).getByRole('button', { name: '拆分', exact: true }).click();
+  await expect(page.getByText(/已拆分為 2 個檔案/)).toBeVisible();
+  // The uploaded original is already selected; one action adds both generated files.
+  await page.getByRole('tab', { name: '合併', exact: true }).click();
   await page.getByRole('button', { name: '全選檔案', exact: true }).click();
-  await page.getByRole('tab', { name: '編輯 PDF', exact: true }).click();
+  await page.getByRole('tab', { name: '編輯', exact: true }).click();
   await page.getByRole('button', { name: '向右旋轉第 1 頁', exact: true }).click();
-  await page.getByRole('tab', { name: '合併 PDF', exact: true }).click();
+  await page.getByRole('tab', { name: '合併', exact: true }).click();
   const originalId = (await snapshot(page)).workspace.files[0].id;
   const bundleRequest = page.waitForRequest((req) => req.url().endsWith('/api/pdf/bundle'));
-  await page.getByRole('button', { name: '下載選取 ZIP (3)', exact: true }).click();
+  await page.getByRole('button', { name: '另存為 ZIP（3 份）', exact: true }).click();
   expect((await bundleRequest).postDataJSON().files[0].id).not.toBe(originalId);
-  await expect(page.getByRole('dialog', { name: '儲存檔案' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: '另存檔案' })).toBeVisible();
   const downloadEvent = page.waitForEvent('download');
   await page.getByRole('button', { name: '下載', exact: true }).click();
   const download = await downloadEvent;

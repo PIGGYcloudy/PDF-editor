@@ -96,7 +96,7 @@ function WatermarkPanel({
   return (
     <Paper sx={{ p: 3, mb: 3 }}>
       <Typography variant="h6" gutterBottom>
-        添加浮水印
+        浮水印
       </Typography>
       <ToggleButtonGroup
         exclusive
@@ -196,9 +196,9 @@ function WatermarkPanel({
                     maxWidth: 200,
                     maxHeight: 120,
                     objectFit: 'contain',
-                    border: '1px solid #eee',
+                    border: '1px solid var(--line-subtle)',
                     borderRadius: 1,
-                    bgcolor: '#fafafa',
+                    bgcolor: 'var(--surface-muted)',
                   }}
                 />
               )}
@@ -276,14 +276,14 @@ function WatermarkPanel({
       </Stack>
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        {selectedCount > 0 ? `將添加到 ${selectedCount} 個選取的頁面` : '將添加到所有頁面'}
+        {selectedCount > 0 ? `套用到選取的 ${selectedCount} 頁` : '套用到所有頁面'}
       </Typography>
       <Button
         variant="contained"
         onClick={handleSubmit}
         disabled={loading || !canSubmit}
       >
-        {loading ? <CircularProgress size={24} /> : '添加浮水印'}
+        {loading ? <CircularProgress size={24} /> : '加上浮水印'}
       </Button>
     </Paper>
   );

@@ -43,11 +43,11 @@ function SplitPanel({ pageCount, loading, onSplit }: SplitPanelProps) {
   return (
     <Paper sx={{ p: 3, mb: 3 }}>
       <Typography variant="h6" gutterBottom>
-        拆分 PDF
+        拆分
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        拆出的檔案會加入檔案列表，目前的文件不會改變。只想取出幾頁時，
-        也可以在頁面預覽選取後按「抽出為新檔案」。
+        拆出的檔案會另外加入文件列表，目前的文件不變。只要取出幾頁，
+        也可以選取頁面後按「抽出為新檔案」。
       </Typography>
       <FormControl sx={{ width: '100%', maxWidth: 480 }}>
         <RadioGroup
@@ -90,7 +90,7 @@ function SplitPanel({ pageCount, loading, onSplit }: SplitPanelProps) {
           onClick={submit}
           disabled={loading || !canSplit}
         >
-          {loading ? <CircularProgress size={24} /> : '拆分 PDF'}
+          {loading ? <CircularProgress size={24} /> : '拆分'}
         </Button>
       </Stack>
     </Paper>

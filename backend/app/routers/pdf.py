@@ -30,6 +30,8 @@ from app.models.schemas import (
     ReorderPagesResponse,
     CompressRequest,
     CompressResponse,
+    NormalizePageSizeRequest,
+    NormalizePageSizeResponse,
     WatermarkTextRequest,
     WatermarkResponse,
     PagesResponse,
@@ -49,6 +51,7 @@ from app.utils.pdf_utils import (
 )
 from app.services.pdf_service import PDFService, parse_page_ranges
 from app.services.compress_service import CompressService
+from app.services.page_size_service import PageSizeService
 from app.services.watermark_service import WatermarkService
 
 # 路由刻意使用同步 `def`：PDF 解析與 Poppler 渲染都是阻塞操作，FastAPI 會把
@@ -263,6 +266,23 @@ def split_pdf(request: SplitRequest):
             _split_file(path, label, page_count)
             for path, label, page_count in results
         ])
+
+
+@router.post("/normalize-size", response_model=NormalizePageSizeResponse)
+def normalize_page_size(request: NormalizePageSizeRequest):
+    """把頁面縮放置中到統一的紙張尺寸"""
+    pdf_path = _get_pdf_path(request.pdfId)
+
+    with processing_errors("統一頁面尺寸"):
+        new_path = PageSizeService.normalize(
+            pdf_path,
+            request.size,
+            request.orientation,
+            request.mode,
+            request.selectedPageNumbers if request.pages == "selected" else None,
+        )
+
+    return NormalizePageSizeResponse(newPdfId=output_pdf_id(new_path))
 
 
 @router.post("/compress", response_model=CompressResponse)

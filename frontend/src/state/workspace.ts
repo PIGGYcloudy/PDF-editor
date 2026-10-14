@@ -5,6 +5,8 @@ export interface PdfVersion {
   id: string;
   size: number;
   pageCount: number;
+  /** 存在 history／future 時：從這個版本切換到下一個版本的動作名稱 */
+  label?: string;
 }
 
 /**
@@ -17,6 +19,8 @@ export interface WorkspaceFile extends PdfVersion {
   key: string;
   name: string;
   history: PdfVersion[];
+  /** 復原後可重做的版本，最後一筆是下一個要重做的版本 */
+  future?: PdfVersion[];
 }
 
 export interface WorkspaceState {
@@ -30,14 +34,18 @@ export interface WorkspaceState {
 export const MAX_HISTORY = 20;
 
 export type WorkspaceAction =
-  | { type: 'filesAdded'; files: PDFFile[] }
+  /** selectForMerge：上傳的文件預設加入合併選取 */
+  | { type: 'filesAdded'; files: PDFFile[]; selectForMerge?: boolean }
   | { type: 'currentChanged'; key: string | null }
   | {
       type: 'versionReplaced';
       key: string;
       version: Pick<PdfVersion, 'id'> & Partial<PdfVersion>;
+      /** 產生新版本的動作，例如「壓縮」 */
+      label: string;
     }
   | { type: 'versionRestored'; key: string }
+  | { type: 'versionRedone'; key: string }
   | { type: 'fileRemoved'; key: string }
   | { type: 'mergeToggled'; key: string }
   | { type: 'mergeReordered'; keys: string[] }
@@ -79,6 +87,10 @@ export function workspaceReducer(
             history: [],
           })),
         ],
+        mergeSelection: action.selectForMerge
+          ? [...state.mergeSelection, ...action.files.map((file) => file.id)
+            .filter((key) => !state.mergeSelection.includes(key))]
+          : state.mergeSelection,
       };
 
     case 'currentChanged':
@@ -90,8 +102,9 @@ export function workspaceReducer(
         ...action.version,
         history: [
           ...file.history,
-          { id: file.id, size: file.size, pageCount: file.pageCount },
+          { id: file.id, size: file.size, pageCount: file.pageCount, label: action.label },
         ].slice(-MAX_HISTORY),
+        future: [],
       }));
 
     case 'versionRestored':
@@ -100,10 +113,33 @@ export function workspaceReducer(
         if (!previous) {
           return file;
         }
+        const { label, ...version } = previous;
         return {
           ...file,
-          ...previous,
+          ...version,
           history: file.history.slice(0, -1),
+          future: [
+            ...(file.future ?? []),
+            { id: file.id, size: file.size, pageCount: file.pageCount, label },
+          ],
+        };
+      });
+
+    case 'versionRedone':
+      return updateFile(state, action.key, (file) => {
+        const next = file.future?.[file.future.length - 1];
+        if (!next) {
+          return file;
+        }
+        const { label, ...version } = next;
+        return {
+          ...file,
+          ...version,
+          history: [
+            ...file.history,
+            { id: file.id, size: file.size, pageCount: file.pageCount, label },
+          ].slice(-MAX_HISTORY),
+          future: file.future!.slice(0, -1),
         };
       });
 
