@@ -119,7 +119,8 @@ export interface ApplyEditsResponse {
 // 抽出頁面與拆分
 export type SplitOptions =
   | { mode: 'ranges'; ranges: string }
-  | { mode: 'every'; every: number };
+  | { mode: 'every'; every: number }
+  | { mode: 'pages' };
 
 export interface SplitFileInfo {
   id: string;

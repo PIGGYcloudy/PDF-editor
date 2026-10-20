@@ -245,13 +245,17 @@ def extract_pages(request: ExtractRequest):
 
 @router.post("/split", response_model=SplitResponse)
 def split_pdf(request: SplitRequest):
-    """依頁碼範圍或固定頁數拆分成多個 PDF；原文件不變"""
+    """依頁碼範圍、固定頁數或每頁拆分成多個 PDF；原文件不變"""
     pdf_path = _get_pdf_path(request.pdfId)
 
     with processing_errors("拆分 PDF"):
         total_pages = get_pdf_page_count(pdf_path)
         if request.mode == "ranges":
             groups = parse_page_ranges(request.ranges or "", total_pages)
+        elif request.mode == "pages":
+            if total_pages < 2:
+                raise ValueError("只有一頁，不需要拆分")
+            groups = [[page_number] for page_number in range(1, total_pages + 1)]
         else:
             step = request.every or 1
             groups = [
