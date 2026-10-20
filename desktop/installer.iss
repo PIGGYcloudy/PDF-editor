@@ -28,8 +28,10 @@ SolidCompression=yes
 WizardStyle=modern
 
 [Languages]
-; 繁體中文為 Inno Setup 非官方翻譯，CI 會下載到 build\；沒有時只提供英文
-#if FileExists(SourcePath + "build\ChineseTraditional.isl")
+; 新版 Inno Setup 內建繁體中文；舊版由 CI 下載到 build\；都沒有時只提供英文
+#if FileExists(CompilerPath + "Languages\ChineseTraditional.isl")
+Name: "chinesetraditional"; MessagesFile: "compiler:Languages\ChineseTraditional.isl"
+#elif FileExists(SourcePath + "build\ChineseTraditional.isl")
 Name: "chinesetraditional"; MessagesFile: "build\ChineseTraditional.isl"
 #endif
 Name: "english"; MessagesFile: "compiler:Default.isl"

@@ -90,10 +90,13 @@ jobs:
             if (-not (Test-Path "$iscc\ISCC.exe")) { choco install innosetup -y --no-progress }
             $env:PATH += ";$iscc"
           }
-          try {
-            Invoke-WebRequest "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseTraditional.isl" -OutFile build/ChineseTraditional.isl
-          } catch {
-            Write-Warning "無法下載繁體中文安裝介面，安裝程式只提供英文"
+          $compilerDir = Split-Path (Get-Command iscc).Source
+          if (-not (Test-Path "$compilerDir\Languages\ChineseTraditional.isl")) {
+            try {
+              Invoke-WebRequest "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/ChineseTraditional.isl" -OutFile build/ChineseTraditional.isl
+            } catch {
+              Write-Warning "無法下載繁體中文安裝介面，安裝程式只提供英文"
+            }
           }
           iscc "/DAppVersion=${{ steps.version.outputs.value }}" installer.iss
 
