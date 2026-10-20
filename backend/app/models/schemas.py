@@ -119,8 +119,9 @@ class ExtractRequest(BaseModel):
 
 class SplitRequest(BaseModel):
     pdfId: str
-    mode: Literal["ranges", "every"] = Field(
-        ..., description="ranges：依頁碼範圍；every：每 N 頁一個檔案"
+    mode: Literal["ranges", "every", "pages"] = Field(
+        ...,
+        description="ranges：依頁碼範圍；every：每 N 頁一個檔案；pages：每頁一個檔案",
     )
     ranges: Optional[str] = Field(
         None, max_length=500, description='例如 "1-3, 5, 8-10"，每段成為一個檔案'

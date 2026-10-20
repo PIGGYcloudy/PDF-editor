@@ -31,13 +31,15 @@ function SplitPanel({ pageCount, loading, onSplit }: SplitPanelProps) {
     && everyNumber >= 1
     && everyNumber < pageCount;
   const canSplit = pageCount > 1 && (
-    mode === 'ranges' ? ranges.trim().length > 0 : everyValid
+    mode === 'ranges' ? ranges.trim().length > 0
+      : mode === 'every' ? everyValid
+        : true
   );
 
   const submit = () => onSplit(
-    mode === 'ranges'
-      ? { mode, ranges: ranges.trim() }
-      : { mode, every: everyNumber },
+    mode === 'ranges' ? { mode, ranges: ranges.trim() }
+      : mode === 'every' ? { mode, every: everyNumber }
+        : { mode },
   );
 
   return (
@@ -82,6 +84,10 @@ function SplitPanel({ pageCount, loading, onSplit }: SplitPanelProps) {
             inputProps={{ min: 1, max: Math.max(pageCount - 1, 1), step: 1 }}
             sx={{ ml: 4, mb: 1 }}
           />
+          <FormControlLabel value="pages" control={<Radio />} label="每頁一個檔案" />
+          <Typography variant="caption" color="text.secondary" sx={{ ml: 4, mb: 1 }}>
+            自動拆成 {pageCount} 個單頁檔案
+          </Typography>
         </RadioGroup>
       </FormControl>
       <Stack direction="row" sx={{ mt: 1 }}>

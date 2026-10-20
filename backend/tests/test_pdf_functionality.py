@@ -1211,6 +1211,14 @@ def test_split_api_by_ranges_and_by_count(tmp_path: Path):
     assert [file["pageCount"] for file in files] == [2, 2, 1]
     assert [file["label"] for file in files] == ["1-2", "3-4", "5"]
 
+    response = client.post("/api/pdf/split", json={"pdfId": pdf_id, "mode": "pages"})
+    assert response.status_code == 200
+    files = response.json()["files"]
+    assert [file["label"] for file in files] == ["1", "2", "3", "4", "5"]
+    assert [page_texts(resolve_pdf_path(file["id"])) for file in files] == [
+        [f"Page {n}"] for n in range(1, 6)
+    ]
+
 
 def test_split_api_rejects_invalid_requests(tmp_path: Path):
     source = create_numbered_pdf(tmp_path / "source.pdf", 3)
@@ -1396,3 +1404,13 @@ def test_bundle_rejects_expired_files_without_leaving_archive(isolated_storage):
             "files": [{"id": "missing", "name": "file.pdf"}] * 101,
         }).status_code == 422
     assert not list(isolated_storage["outputs"].glob("bundle_*.zip"))
+
+
+def test_split_pages_mode_rejects_single_page_pdf(tmp_path: Path):
+    source = create_numbered_pdf(tmp_path / "source.pdf", 1)
+    client = TestClient(app)
+    pdf_id = upload_sample(client, source)
+
+    response = client.post("/api/pdf/split", json={"pdfId": pdf_id, "mode": "pages"})
+
+    assert response.status_code == 400
