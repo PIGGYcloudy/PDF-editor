@@ -96,6 +96,22 @@ test('an expired PDF can still be removed from the workspace', async ({ page, re
   expect((await snapshot(page)).workspace.files).toHaveLength(0);
 });
 
+test('split mode can turn every page into its own file', async ({ page }) => {
+  await upload(page);
+  await page.getByRole('button', { name: '拆分', exact: true }).click();
+  const panel = page.getByRole('region', { name: '拆分設定' });
+  await panel.getByRole('radio', { name: '每頁一個檔案', exact: true }).check();
+  await expect(panel.getByText('自動拆成 3 個單頁檔案')).toBeVisible();
+  await panel.getByRole('button', { name: '拆分', exact: true }).click();
+  await expect(page.getByText(/已拆分為 3 個檔案/)).toBeVisible();
+  const names = (await snapshot(page)).workspace.files.map((file: { name: string }) => file.name);
+  expect(names).toEqual(expect.arrayContaining([
+    'three-pages_p1.pdf',
+    'three-pages_p2.pdf',
+    'three-pages_p3.pdf',
+  ]));
+});
+
 test('split files can be downloaded together as one ZIP', async ({ page }, testInfo) => {
   await upload(page);
   await page.getByRole('button', { name: '拆分', exact: true }).click();
