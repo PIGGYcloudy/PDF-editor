@@ -14,6 +14,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
+from app.config import CJK_FONT_CANDIDATES
 from app.utils.pdf_utils import (
     clone_pdf_writer,
     hex_to_rgb,
@@ -40,10 +41,8 @@ class WatermarkService:
         "times new roman": "Times-Roman",
         "courier": "Courier",
     }
-    CJK_FONT_NAME = "DroidSansFallback"
-    CJK_FONT_PATH = Path(
-        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf"
-    )
+    CJK_FONT_NAME = "CJKFallback"
+    CJK_FONT_CANDIDATES = CJK_FONT_CANDIDATES
     RESOURCE_DICTIONARY_KEYS = {
         "/ExtGState",
         "/Font",
@@ -185,14 +184,7 @@ class WatermarkService:
             try:
                 pdfmetrics.getFont(WatermarkService.CJK_FONT_NAME)
             except KeyError:
-                if not WatermarkService.CJK_FONT_PATH.exists():
-                    raise ValueError("伺服器缺少中文字型，無法建立中文浮水印") from None
-                pdfmetrics.registerFont(
-                    TTFont(
-                        WatermarkService.CJK_FONT_NAME,
-                        WatermarkService.CJK_FONT_PATH,
-                    )
-                )
+                WatermarkService._register_cjk_font()
             return WatermarkService.CJK_FONT_NAME
 
         try:
@@ -210,6 +202,23 @@ class WatermarkService:
             return alias
         except KeyError:
             raise ValueError(f"不支援的字體：{font_family}") from None
+
+    @staticmethod
+    def _register_cjk_font() -> None:
+        for font_path in WatermarkService.CJK_FONT_CANDIDATES:
+            if not font_path.exists():
+                continue
+            try:
+                # .ttc 字型集合取第一個字型
+                font = TTFont(
+                    WatermarkService.CJK_FONT_NAME, str(font_path), subfontIndex=0
+                )
+            except Exception:
+                # 部分字型（例如 CFF 外框）reportlab 無法使用，改試下一個
+                continue
+            pdfmetrics.registerFont(font)
+            return
+        raise ValueError("伺服器缺少中文字型，無法建立中文浮水印")
 
     @staticmethod
     def _contains_cjk(text: str) -> bool:

@@ -1,0 +1,3 @@
+# Windows 桌面版打包所需套件；後端執行套件另見 backend/requirements.txt
+pyinstaller==6.22.3
+pywebview==6.2.1

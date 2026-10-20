@@ -11,9 +11,14 @@ load_dotenv()
 # 專案根目錄
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# 資料目錄：上傳與輸出檔的存放位置。Windows 桌面版把它指到使用者的
+# AppData 或 portable 資料夾，因為安裝目錄可能沒有寫入權限。
+DATA_DIR = Path(os.getenv("PDF_EDITOR_DATA_DIR") or BASE_DIR)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 # 上傳目錄
-UPLOADS_DIR = BASE_DIR / "uploads"
-OUTPUTS_DIR = BASE_DIR / "outputs"
+UPLOADS_DIR = DATA_DIR / "uploads"
+OUTPUTS_DIR = DATA_DIR / "outputs"
 
 # 確保目錄存在
 UPLOADS_DIR.mkdir(exist_ok=True)
@@ -46,6 +51,28 @@ if MAX_CONCURRENT_RENDERS < 1:
 # 單張渲染圖片的像素上限；超大頁面會自動降低 DPI。A3 在 300 DPI 約 1750 萬像素，
 # 不受影響。
 MAX_RENDER_PIXELS = 25_000_000
+
+# Poppler 執行檔所在目錄；未設定時從 PATH 尋找（Docker 與 Linux 開發環境）
+POPPLER_PATH = os.getenv("POPPLER_PATH") or None
+
+# 前端 production build 的目錄；設定時由後端直接提供網頁（Windows 桌面版），
+# 不設定時由 nginx 或 Vite 提供
+STATIC_DIR = os.getenv("PDF_EDITOR_STATIC_DIR") or None
+
+# 中文浮水印字型，依序使用第一個存在的檔案；可用 CJK_FONT_PATH 指定
+_WINDOWS_FONTS_DIR = Path(os.getenv("WINDIR", r"C:\Windows")) / "Fonts"
+CJK_FONT_CANDIDATES = [
+    Path(path)
+    for path in (
+        os.getenv("CJK_FONT_PATH"),
+        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+        # Windows 內建字型：微軟正黑體、微軟雅黑、細明體
+        _WINDOWS_FONTS_DIR / "msjh.ttc",
+        _WINDOWS_FONTS_DIR / "msyh.ttc",
+        _WINDOWS_FONTS_DIR / "mingliu.ttc",
+    )
+    if path
+]
 
 # 圖片設定
 THUMBNAIL_SIZES = {
