@@ -18,6 +18,7 @@ from app.config import (
     MAX_CONCURRENT_RENDERS,
     MAX_RENDER_PIXELS,
     OUTPUTS_DIR,
+    POPPLER_PATH,
     THUMBNAIL_SIZES,
     UPLOADS_DIR,
 )
@@ -120,6 +121,7 @@ def render_page(pdf_path: Path, page_number: int, dpi: int) -> Image.Image:
             dpi=dpi,
             first_page=page_number,
             last_page=page_number,
+            poppler_path=POPPLER_PATH,
         )
 
     if not images:
