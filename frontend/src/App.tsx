@@ -41,6 +41,7 @@ function App({ colorMode, onColorModeChange }: {
   const [imagePageSize, setImagePageSize] = useState<ImagePageSize>('a4');
   const [helpOpen, setHelpOpen] = useState(false);
   const [pendingRemoval, setPendingRemoval] = useState<WorkspaceFile | null>(null);
+  const [clearAllOpen, setClearAllOpen] = useState(false);
   const [reduceTransparency, setReduceTransparency] = useState(() => {
     try { return localStorage.getItem('pdf-editor.reduce-transparency') === 'true'; }
     catch { return false; }
@@ -59,6 +60,7 @@ function App({ colorMode, onColorModeChange }: {
       && !helpOpen
       && previewPage === null
       && pendingRemoval === null
+      && !clearAllOpen
       && saver.pendingRequest === null,
     onDelete: () => {
       if (!loading) workspace.removeSelectedPages();
@@ -111,6 +113,12 @@ function App({ colorMode, onColorModeChange }: {
       setActivePanel(null);
     }
     void workspace.removeFile(file.key);
+  };
+
+  const confirmClearAll = () => {
+    setClearAllOpen(false);
+    setActivePanel(null);
+    void workspace.removeAllFiles();
   };
 
   /** 打開工具前先套用頁面變更，工具與預覽都以套用後的頁面為準。 */
@@ -237,6 +245,20 @@ function App({ colorMode, onColorModeChange }: {
           <Button color="error" variant="contained" onClick={confirmRemove}>移除</Button>
         </DialogActions>
       </Dialog>
+      <Dialog open={clearAllOpen} onClose={() => setClearAllOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>清除全部 {workspace.files.length} 個檔案？</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {workspace.pendingFileKeys.length > 0
+              ? '所有檔案和尚未套用的頁面變更都會從伺服器刪除，且無法復原。'
+              : '所有檔案都會從伺服器刪除，且無法復原。'}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setClearAllOpen(false)} autoFocus>取消</Button>
+          <Button color="error" variant="contained" onClick={confirmClearAll}>全部清除</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* 處理中的提示浮在畫面上方，不推動版面 */}
       {loading && (
@@ -339,7 +361,8 @@ function App({ colorMode, onColorModeChange }: {
         {workspace.files.length > 0 && (
           <FileList files={workspace.files} pendingFileKeys={workspace.pendingFileKeys}
             currentKey={currentFile?.key ?? null} loading={loading} onOpen={handleOpen} onRemove={setPendingRemoval}
-            onSaveAll={() => void handleSaveFiles(workspace.files, 'pdf_files.zip')} />
+            onSaveAll={() => void handleSaveFiles(workspace.files, 'pdf_files.zip')}
+            onRemoveAll={() => setClearAllOpen(true)} />
         )}
 
         {/* 拆分結果可一次另存，不必逐一開啟檔案 */}

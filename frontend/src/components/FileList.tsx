@@ -1,5 +1,5 @@
 import { Button, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material';
-import { Close, Download, PictureAsPdf } from '@mui/icons-material';
+import { Close, DeleteSweep, Download, PictureAsPdf } from '@mui/icons-material';
 import type { WorkspaceFile } from '../state/workspace';
 interface Props {
   files: WorkspaceFile[];
@@ -10,8 +10,9 @@ interface Props {
   onRemove: (file: WorkspaceFile) => void;
   /** 把列表中的所有文件打包成 ZIP 另存 */
   onSaveAll: () => void;
+  onRemoveAll: () => void;
 }
-export default function FileList({ files, currentKey, pendingFileKeys, loading, onOpen, onRemove, onSaveAll }: Props) {
+export default function FileList({ files, currentKey, pendingFileKeys, loading, onOpen, onRemove, onSaveAll, onRemoveAll }: Props) {
   return <Paper component="section" aria-label="文件" sx={{ p: { xs: 1.5, sm: 2 }, mb: 2 }}>
     <Stack direction="row" useFlexGap flexWrap="wrap" gap={1}>
       {files.map((file) => {
@@ -34,10 +35,14 @@ export default function FileList({ files, currentKey, pendingFileKeys, loading, 
       <Typography variant="caption" color="text.secondary" component="p">
         檔案只在伺服器暫存一段時間，完成後請另存到裝置。
       </Typography>
-      {/* 只有一份時用工具列的「另存 PDF」即可 */}
-      {files.length > 1 && <Button size="small" startIcon={<Download />} disabled={loading} onClick={onSaveAll}>
-        全部另存（ZIP，{files.length} 份）
-      </Button>}
+      {/* 只有一份時用工具列的「另存 PDF」與單檔移除即可 */}
+      {files.length > 1 && <Stack direction="row" gap={1} sx={{ flexShrink: 0 }}>
+        <Button size="small" startIcon={<Download />} disabled={loading} onClick={onSaveAll}>
+          全部另存（ZIP，{files.length} 份）
+        </Button>
+        <Button size="small" color="error" startIcon={<DeleteSweep />} disabled={loading}
+          onClick={onRemoveAll}>全部清除</Button>
+      </Stack>}
     </Stack>
   </Paper>;
 }
