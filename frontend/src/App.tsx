@@ -1,7 +1,7 @@
 import MergeWorkspace from './components/MergeWorkspace';
 import { useState } from 'react';
-import { Alert, Box, Button, Container, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, LinearProgress, Paper, Snackbar, Stack, Tab, Tabs, Typography } from '@mui/material';
-import { CallMergeOutlined, EditOutlined, HelpOutline, PictureAsPdfOutlined } from '@mui/icons-material';
+import { Alert, Box, Button, Container, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, LinearProgress, Paper, Snackbar, Stack, Tab, Tabs, Typography } from '@mui/material';
+import { CallMergeOutlined, Close, EditOutlined, HelpOutline, PictureAsPdfOutlined } from '@mui/icons-material';
 import ColorModeSwitch from './components/ColorModeSwitch';
 import HelpDialog from './components/HelpDialog';
 import FileList from './components/FileList';
@@ -162,16 +162,20 @@ function App({ colorMode, onColorModeChange }: {
     });
   };
 
-  const handleSaveBundle = async () => {
-    const files = workspace.mergeFiles;
+  /** 套用頁面變更後一起另存：一份存成 PDF，多份打包成 ZIP。 */
+  const handleSaveFiles = async (files: WorkspaceFile[], zipName: string) => {
     if (!files.length) return;
     if (files.length > 100) {
       status.setError('每次最多打包 100 份 PDF，請減少選取的檔案。');
       return;
     }
-    const prepared = await workspace.prepareBundle();
+    const prepared = await workspace.prepareBundle(files);
     if (!prepared) return;
-    await saver.beginSave({ kind: 'bundle', suggestedName: 'pdf_files.zip',
+    if (prepared.length === 1) {
+      await saver.beginSave({ kind: 'pdf', pdfId: prepared[0].id, suggestedName: suggestedPdfName(prepared[0]) });
+      return;
+    }
+    await saver.beginSave({ kind: 'bundle', suggestedName: zipName,
       files: prepared.map((file) => ({ id: file.id, name: suggestedPdfName(file) })),
     });
   };
@@ -351,13 +355,33 @@ function App({ colorMode, onColorModeChange }: {
           <MergeWorkspace workspace={workspace} loading={loading}
             onEdit={(key) => { handleOpen(key); setView('edit'); }}
             onSave={(file) => void saver.beginSave({ kind: 'pdf', pdfId: file.id, suggestedName: suggestedPdfName(file) })}
-            onBundle={() => void handleSaveBundle()} />
+            onBundle={() => void handleSaveFiles(workspace.mergeFiles, 'pdf_files.zip')} />
         </Box>
         <Box role="tabpanel" id="edit-panel" aria-labelledby="edit-tab" hidden={view !== 'edit'}>
         {workspace.files.length > 0 && (
           <FileList files={workspace.files} pendingFileKeys={workspace.pendingFileKeys}
             currentKey={currentFile?.key ?? null} loading={loading} onOpen={handleOpen} onRemove={setPendingRemoval}
+            onSaveAll={() => void handleSaveFiles(workspace.files, 'pdf_files.zip')}
             onRemoveAll={() => setClearAllOpen(true)} />
+        )}
+
+        {/* 拆分結果可一次另存，不必逐一開啟檔案 */}
+        {workspace.splitResult && (
+          <Alert severity="success" sx={{ mb: 2 }}
+            action={<Stack direction="row" alignItems="center">
+              <Button color="inherit" size="small" disabled={loading} onClick={() => {
+                const { sourceName, files } = workspace.splitResult!;
+                void handleSaveFiles(files, normalizeDownloadFilename(
+                  `${sourceName.replace(/\.pdf$/i, '')}_split`, '.zip', 'pdf_split'));
+              }}>
+                {workspace.splitResult.files.length > 1 ? `另存拆分檔案（ZIP，${workspace.splitResult.files.length} 份）` : '另存 PDF'}
+              </Button>
+              <IconButton aria-label="關閉" color="inherit" size="small" onClick={workspace.dismissSplitResult}><Close fontSize="small" /></IconButton>
+            </Stack>}>
+            <Typography sx={{ overflowWrap: 'anywhere' }}>
+              「{workspace.splitResult.sourceName}」拆出的 {workspace.splitResult.files.length} 個檔案已加入文件列表。
+            </Typography>
+          </Alert>
         )}
 
         {currentFile && (
