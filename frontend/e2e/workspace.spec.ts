@@ -135,3 +135,14 @@ test('split files can be downloaded together as one ZIP', async ({ page }, testI
   await download.saveAs(testInfo.outputPath('bundle.zip'));
   expect(await download.failure()).toBeNull();
 });
+
+test('clear all removes every file after confirmation', async ({ page }) => {
+  await upload(page);
+  await page.locator('input[type=file]').first().setInputFiles(fixture);
+  await expect(page.getByRole('button', { name: /^移除 / })).toHaveCount(2);
+  await expect(page.getByText('處理中…', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '全部清除', exact: true }).click();
+  await page.getByRole('dialog', { name: /清除全部 2 個檔案/ }).getByRole('button', { name: '全部清除', exact: true }).click();
+  await expect(page.getByText('已移除全部 2 個檔案。', { exact: true })).toBeVisible();
+  expect((await snapshot(page)).workspace.files).toHaveLength(0);
+});
