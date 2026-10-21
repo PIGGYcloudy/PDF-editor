@@ -594,6 +594,37 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
     }, '刪除 PDF 失敗。');
   };
 
+  /** 移除工作區中所有文件；伺服器刪除失敗的文件會保留在清單中。 */
+  const removeAllFiles = () => {
+    const files = state.files;
+    if (files.length === 0) {
+      return Promise.resolve(false);
+    }
+    return runTask(async () => {
+      const results = await Promise.allSettled(files.map((file) => deletePDF(file.id)));
+      const removed = files.filter((_, index) => results[index].status === 'fulfilled');
+      await discardVersions(removed.flatMap((file) =>
+        [...file.history, ...(file.future ?? [])].map((version) => version.id)));
+      const removedKeys = removed.map((file) => file.key);
+      const removedIds = new Set(removed.flatMap((file) =>
+        [file.id, ...file.history.map((version) => version.id)]));
+      dispatch({ type: 'filesRemoved', keys: removedKeys });
+      setDrafts((previous) => Object.fromEntries(Object.entries(previous)
+        .filter(([id]) => !removedIds.has(id))));
+      if (state.currentKey !== null && removedKeys.includes(state.currentKey)) {
+        setSelectedPages(new Set());
+      }
+      if (mergeResult && removedKeys.includes(mergeResult.key)) {
+        setMergeResult(null);
+      }
+      const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+      if (failed) {
+        throw failed.reason;
+      }
+      return `已移除全部 ${removed.length} 個檔案。`;
+    }, '部分檔案無法刪除，請稍後再試。');
+  };
+
   /** 切換頁面的選取；extend 為 true（Shift+點擊）時選取與上次點選之間的所有頁面。 */
   const togglePage = (pageNumber: number, extend = false) => {
     const anchor = selectionAnchor.current;
@@ -654,6 +685,7 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
     upload,
     openFile,
     removeFile,
+    removeAllFiles,
     toggleMerge: (key: string) => dispatch({ type: 'mergeToggled', key }),
     mergeSelectedFiles,
     togglePage,

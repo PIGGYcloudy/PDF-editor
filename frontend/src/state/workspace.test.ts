@@ -131,4 +131,18 @@ describe('workspaceReducer', () => {
 
     expect(getCurrentFile(state)?.key).toBe('a');
   });
+
+  it('removes several files at once', () => {
+    const state = reduce(
+      { type: 'filesAdded', files: [pdf('a'), pdf('b'), pdf('c')] },
+      { type: 'currentChanged', key: 'b' },
+      { type: 'mergeToggled', key: 'a' },
+      { type: 'mergeToggled', key: 'c' },
+      { type: 'filesRemoved', keys: ['a', 'b'] },
+    );
+
+    expect(state.files.map((file) => file.key)).toEqual(['c']);
+    expect(state.currentKey).toBeNull();
+    expect(state.mergeSelection).toEqual(['c']);
+  });
 });

@@ -47,6 +47,7 @@ export type WorkspaceAction =
   | { type: 'versionRestored'; key: string }
   | { type: 'versionRedone'; key: string }
   | { type: 'fileRemoved'; key: string }
+  | { type: 'filesRemoved'; keys: string[] }
   | { type: 'mergeToggled'; key: string }
   | { type: 'mergeReordered'; keys: string[] }
   | { type: 'mergeCleared' };
@@ -144,10 +145,14 @@ export function workspaceReducer(
       });
 
     case 'fileRemoved':
+      return workspaceReducer(state, { type: 'filesRemoved', keys: [action.key] });
+
+    case 'filesRemoved':
       return {
-        files: state.files.filter((file) => file.key !== action.key),
-        currentKey: state.currentKey === action.key ? null : state.currentKey,
-        mergeSelection: state.mergeSelection.filter((key) => key !== action.key),
+        files: state.files.filter((file) => !action.keys.includes(file.key)),
+        currentKey: state.currentKey !== null && action.keys.includes(state.currentKey)
+          ? null : state.currentKey,
+        mergeSelection: state.mergeSelection.filter((key) => !action.keys.includes(key)),
       };
 
     case 'mergeToggled':
