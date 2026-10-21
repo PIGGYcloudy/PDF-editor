@@ -112,6 +112,8 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
     dispatchWorkspace(action);
   };
   const [mergeResult, setMergeResult] = useState<WorkspaceFile | null>(null);
+  /** 最近一次拆分產生的檔案，供一次另存。 */
+  const [splitResult, setSplitResult] = useState<{ sourceName: string; keys: string[] } | null>(null);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   // Shift 點選範圍選取的起點
   const selectionAnchor = useRef<number | null>(null);
@@ -363,12 +365,12 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
     return runTask(async () => {
       const [prepared] = await applyFileDrafts([file]);
       const response = await splitPDF(prepared.id, options);
-      dispatch({
-        type: 'filesAdded',
-        files: response.files.map((info) => (
-          toPdfFile(info, `${baseName(file.name)}_p${info.label}.pdf`)
-        )),
-      });
+      const files = response.files.map((info) => (
+        toPdfFile(info, `${baseName(file.name)}_p${info.label}.pdf`)
+      ));
+      dispatch({ type: 'filesAdded', files });
+      // 新增的檔案以 id 作為 key
+      setSplitResult({ sourceName: file.name, keys: files.map((item) => item.id) });
       return `已拆分為 ${response.files.length} 個檔案。`;
     }, '拆分 PDF 失敗。');
   };
@@ -530,10 +532,11 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
     return results;
   };
 
-  const prepareBundle = async () => {
+  /** 套用指定文件（預設為合併清單）的頁面變更，供打包另存。 */
+  const prepareBundle = async (targets: WorkspaceFile[] = mergeFiles) => {
     let files: WorkspaceFile[] | null = null;
     await runTask(async () => {
-      files = await applyFileDrafts(mergeFiles);
+      files = await applyFileDrafts(targets);
       return null;
     }, '套用頁面變更失敗。');
     return files as WorkspaceFile[] | null;
@@ -625,6 +628,10 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
     new Set(invertSelection(pageOrder, selectedPages)),
   );
 
+  // 拆分出的檔案被移除後就不再列出
+  const splitFiles = splitResult
+    ? state.files.filter((file) => splitResult.keys.includes(file.key)) : [];
+
   const selectPagesByParity = (parity: 'odd' | 'even') => setSelectedPages(
     new Set(pagesByParity(pageOrder, parity)),
   );
@@ -636,6 +643,8 @@ export function usePdfWorkspace({ runTask, setError, loading }: Status) {
     reorderMerge: (keys: string[]) => dispatch({ type: 'mergeReordered', keys }),
     pendingFileKeys,
     prepareBundle,
+    splitResult: splitFiles.length ? { sourceName: splitResult!.sourceName, files: splitFiles } : null,
+    dismissSplitResult: () => setSplitResult(null),
     currentFile,
     mergeSelection: state.mergeSelection,
     mergeFiles,

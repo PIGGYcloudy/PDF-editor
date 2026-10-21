@@ -135,3 +135,29 @@ test('split files can be downloaded together as one ZIP', async ({ page }, testI
   await download.saveAs(testInfo.outputPath('bundle.zip'));
   expect(await download.failure()).toBeNull();
 });
+
+test('edit tab saves every file as one ZIP, and split results can be saved together', async ({ page }, testInfo) => {
+  await upload(page);
+  await page.getByRole('button', { name: '拆分', exact: true }).click();
+  const panel = page.getByRole('region', { name: '拆分設定' });
+  await panel.getByRole('radio', { name: '每頁一個檔案', exact: true }).check();
+  await panel.getByRole('button', { name: '拆分', exact: true }).click();
+  await expect(page.getByText('「three-pages.pdf」拆出的 3 個檔案已加入文件列表。')).toBeVisible();
+
+  // Only the split results go into this ZIP; the merge selection is untouched.
+  const splitIds = (await snapshot(page)).workspace.files.slice(1).map((file) => file.id);
+  let bundleRequest = page.waitForRequest((req) => req.url().endsWith('/api/pdf/bundle'));
+  await page.getByRole('button', { name: '另存拆分檔案（ZIP，3 份）', exact: true }).click();
+  expect((await bundleRequest).postDataJSON().files.map((file: { id: string }) => file.id)).toEqual(splitIds);
+  await expect(page.getByRole('textbox', { name: '檔案名稱' })).toHaveValue(/three-pages_split/);
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+
+  bundleRequest = page.waitForRequest((req) => req.url().endsWith('/api/pdf/bundle'));
+  await page.getByRole('button', { name: '全部另存（ZIP，4 份）', exact: true }).click();
+  expect((await bundleRequest).postDataJSON().files).toHaveLength(4);
+  const downloadEvent = page.waitForEvent('download');
+  await page.getByRole('button', { name: '下載', exact: true }).click();
+  const download = await downloadEvent;
+  await download.saveAs(testInfo.outputPath('all.zip'));
+  expect(await download.failure()).toBeNull();
+});
