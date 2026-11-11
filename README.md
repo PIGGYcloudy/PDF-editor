@@ -34,7 +34,7 @@
 - 前端：React 18、TypeScript、Material UI、Vite
 - 後端：FastAPI、pypdf、Pillow、pdf2image、ReportLab
 - 系統工具：Poppler
-- 部署：Docker Compose、Nginx
+- 部署：Docker Compose、Nginx；Windows 桌面版使用 PyInstaller、pywebview 與 Inno Setup
 
 ## 使用 Docker 啟動
 
@@ -102,6 +102,35 @@ PDF_FRONTEND_PORT=8082 PDF_BACKEND_PORT=8001 docker compose -p pdf-editor-ux dow
 | 變數 | 預設值 | 說明 |
 | --- | --- | --- |
 | `LOG_LEVEL` | `INFO` | 後端日誌等級，例如 `DEBUG`、`WARNING`。處理失敗的詳細原因只會寫在日誌，不會回傳給瀏覽器 |
+
+## Windows 桌面版
+
+不想安裝 Docker 的 Windows 使用者可以使用桌面版。開啟後是獨立的應用程式視窗，不需要另外開瀏覽器，也不需要安裝 Python 或 Poppler。畫面使用 Windows 內建的 WebView2（Edge 核心）顯示；電腦缺少 WebView2 時會改用預設瀏覽器開啟。
+
+到 [Actions](https://github.com/PIGGYcloudy/PDF-editor/actions/workflows/windows-desktop.yml) 下載建置結果，推送 `v*` tag 時則會附在 Release：
+
+| 檔案 | 說明 |
+| --- | --- |
+| `PDF-Editor-Setup-<版本>.exe` | 安裝程式，安裝到目前使用者的程式資料夾，不需要系統管理員權限；資料存放在 `%LOCALAPPDATA%\PDF Editor` |
+| `PDF-Editor-Portable-<版本>.zip` | 免安裝版，解壓縮後執行 `PDF Editor.exe`；資料存放在旁邊的 `data` 資料夾 |
+
+後端只監聽 `127.0.0.1` 的隨機 port，檔案不會離開這台電腦；關閉視窗即結束程式。檔案保留期限等環境變數同樣適用。日誌位於資料夾內的 `logs\pdf-editor.log`。
+
+### 自行建置
+
+在 Windows 上需要 Python 3.11+、Node.js 24 與 [Inno Setup 6](https://jrsoftware.org/isinfo.php)（只做免安裝版可省略）：
+
+```powershell
+cd frontend; npm ci; npm run build; cd ..
+pip install -r backend/requirements.txt -r desktop/requirements.txt
+# 把 https://github.com/oschwartz10612/poppler-windows/releases 的 Release zip
+# 解壓到 desktop\build\poppler，使其包含 Library\bin\pdftoppm.exe
+cd desktop
+pyinstaller --noconfirm pdf_editor.spec    # 產生 dist\PDF Editor\
+iscc installer.iss                         # 產生 dist\PDF-Editor-Setup-1.0.0.exe
+```
+
+開發時也可直接執行 `python desktop/launcher.py`（需先 build 前端），加上 `--browser` 改用瀏覽器開啟，`--self-test` 檢查後端與 Poppler 後結束。
 
 ## 本機開發
 

@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import (
     CLEANUP_INTERVAL_MINUTES,
@@ -17,6 +18,7 @@ from app.config import (
     MAX_UPLOAD_MB,
     MAX_UPLOAD_SIZE,
     OUTPUTS_DIR,
+    STATIC_DIR,
     UPLOADS_DIR,
 )
 from app.routers import pdf, convert
@@ -98,17 +100,21 @@ app.include_router(pdf.router, prefix="/api")
 app.include_router(convert.router, prefix="/api")
 
 
-@app.get("/")
-async def root():
-    """API 根路徑"""
-    return {
-        "message": "PDF 編輯器 API",
-        "version": "1.0.0",
-        "docs": "/docs"
-    }
-
-
 @app.get("/health")
 async def health_check():
     """健康檢查"""
     return {"status": "healthy"}
+
+
+if STATIC_DIR:
+    # 桌面版沒有 nginx，由後端直接提供前端網頁；必須在所有 API 路由之後掛載
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="frontend")
+else:
+    @app.get("/")
+    async def root():
+        """API 根路徑"""
+        return {
+            "message": "PDF 編輯器 API",
+            "version": "1.0.0",
+            "docs": "/docs"
+        }
